@@ -112,10 +112,7 @@ class HomeAssistant(object):
 
     def __init__(self, loop=None):
         """Initialize new Home Assistant object."""
-        if sys.platform == 'win32':
-            self.loop = loop or asyncio.ProactorEventLoop()
-        else:
-            self.loop = loop or asyncio.get_event_loop()
+        self.loop = loop or asyncio.get_event_loop()
 
         executor_opts = {'max_workers': 10}
         if sys.version_info[:2] >= (3, 5):
