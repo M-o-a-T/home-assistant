@@ -260,16 +260,17 @@ class HomeAssistant(object):
     async def async_block_till_done(self):
         """Block till all pending work is done."""
         # To flush out any call_soon_threadsafe
-        await asyncio.sleep(0, loop=self.loop)
+        loop = self.loop
+
+        await loop.run_trio(loop.synchronize)
 
         while self._pending_tasks:
             pending = [task for task in self._pending_tasks
                        if not task.done()]
             self._pending_tasks.clear()
             if pending:
-                await asyncio.wait(pending, loop=self.loop)
-            else:
-                await asyncio.sleep(0, loop=self.loop)
+                await asyncio.wait(pending, loop=loop)
+            await loop.run_trio(loop.synchronize)
 
     def stop(self) -> None:
         """Stop Home Assistant and shuts down all threads."""
