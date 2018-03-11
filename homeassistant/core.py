@@ -5,8 +5,8 @@ Home Assistant is a Home Automation framework for observing the state
 of entities and react to changes.
 """
 # pylint: disable=unused-import, too-many-lines
+import trio
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 import enum
 import logging
 import os
@@ -22,6 +22,7 @@ from typing import Optional, Any, Callable, List  # NOQA
 from async_timeout import timeout
 import voluptuous as vol
 from voluptuous.humanize import humanize_error
+from trio_asyncio import TrioExecutor
 
 from homeassistant.const import (
     ATTR_DOMAIN, ATTR_FRIENDLY_NAME, ATTR_NOW, ATTR_SERVICE,
@@ -118,11 +119,12 @@ class HomeAssistant(object):
         if sys.version_info[:2] >= (3, 5):
             # It will default set to the number of processors on the machine,
             # multiplied by 5. That is better for overlap I/O workers.
-            executor_opts['max_workers'] = None
+            del executor_opts['max_workers']
         if sys.version_info[:2] >= (3, 6):
             executor_opts['thread_name_prefix'] = 'SyncWorker'
 
-        self.executor = ThreadPoolExecutor(**executor_opts)
+        self._stopped = trio.Event()
+        self.executor = TrioExecutor(**executor_opts)
         self.loop.set_default_executor(self.executor)
         self.loop.set_exception_handler(async_loop_exception_handler)
         self._pending_tasks = []
