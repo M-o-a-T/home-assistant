@@ -1,6 +1,7 @@
 """Start Home Assistant."""
 from __future__ import print_function
 
+import trio_asyncio
 import argparse
 import os
 import platform

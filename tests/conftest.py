@@ -1,4 +1,5 @@
 """Setup some common test helper things."""
+import trio_asyncio
 import asyncio
 import functools
 import logging
