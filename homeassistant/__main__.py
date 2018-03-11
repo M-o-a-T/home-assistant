@@ -19,17 +19,6 @@ from homeassistant.const import (
 )
 
 
-def attempt_use_uvloop():
-    """Attempt to use uvloop."""
-    import asyncio
-
-    try:
-        import uvloop
-        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-    except ImportError:
-        pass
-
-
 def validate_python() -> None:
     """Validate that the right Python version is running."""
     if sys.version_info[:3] < REQUIRED_PYTHON_VER:
@@ -339,8 +328,6 @@ def main() -> int:
         if sys.version_info[:2] >= (3, 6):
             monkey_patch.disable_c_asyncio()
         monkey_patch.patch_weakref_tasks()
-
-    attempt_use_uvloop()
 
     args = get_arguments()
 

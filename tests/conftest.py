@@ -16,10 +16,6 @@ from tests.common import (
 from tests.test_util.aiohttp import mock_aiohttp_client
 from tests.mock.zwave import MockNetwork, MockOption
 
-if os.environ.get('UVLOOP') == '1':
-    import uvloop
-    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-
 logging.basicConfig()
 logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
 
