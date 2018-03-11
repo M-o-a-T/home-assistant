@@ -11,6 +11,9 @@ async_timeout==2.0.0
 astral==1.5
 certifi>=2017.4.17
 attrs==17.4.0
+git+ssh://git@github.com/python-trio/trio.git
+git+ssh://git@github.com/python-trio/trio-asyncio.git
+
 
 # homeassistant.components.nuimo_controller
 --only-binary=all https://github.com/getSenic/nuimo-linux-python/archive/29fc42987f74d8090d0e2382e8f248ff5990b8c9.zip#nuimo==1.0.0

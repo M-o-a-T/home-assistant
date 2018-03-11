@@ -55,6 +55,12 @@ REQUIRES = [
     'astral==1.5',
     'certifi>=2017.4.17',
     'attrs==17.4.0',
+    'trio',
+    'trio-asyncio',
+]
+dependency_links=[
+    'git+ssh://git@github.com/python-trio/trio.git',
+    'git+ssh://git@github.com/python-trio/trio-asyncio.git',
 ]
 
 MIN_PY_VERSION = '.'.join(map(
