@@ -198,7 +198,7 @@ class MqttJson(MqttAvailability, Light):
 
             if self._brightness is not None:
                 try:
-                    self._brightness = int(values['brightness'] /
+                    self._brightness = int(float(values['brightness']) /
                                            float(self._brightness_scale) *
                                            255)
                 except KeyError:
