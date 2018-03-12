@@ -1,6 +1,6 @@
 """Test the bootstrapping."""
 # pylint: disable=protected-access
-import asyncio
+import pytest
 import os
 from unittest.mock import Mock, patch
 import logging
@@ -18,6 +18,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 # prevent .HA_VERSION file from being written
+@pytest.mark.trio
 @patch(
     'homeassistant.bootstrap.conf_util.process_ha_config_upgrade', Mock())
 @patch('homeassistant.util.location.detect_location_info',
@@ -27,7 +28,7 @@ _LOGGER = logging.getLogger(__name__)
 @patch('os.access', Mock(return_value=True))
 @patch('homeassistant.bootstrap.async_enable_logging',
        Mock(return_value=True))
-def test_from_config_file(hass):
+async def test_from_config_file(hass):
     """Test with configuration file."""
     components = set(['browser', 'conversation', 'script'])
     files = {
@@ -35,18 +36,18 @@ def test_from_config_file(hass):
     }
 
     with patch_yaml_files(files, True):
-        yield from bootstrap.async_from_config_file('config.yaml')
+        await bootstrap.async_from_config_file('config.yaml')
 
     assert components == hass.config.components
 
 
-@asyncio.coroutine
+@pytest.mark.trio
 @patch('homeassistant.bootstrap.async_enable_logging', Mock())
 @patch('homeassistant.bootstrap.async_register_signal_handling', Mock())
-def test_home_assistant_core_config_validation(hass):
+async def test_home_assistant_core_config_validation(hass):
     """Test if we pass in wrong information for HA conf."""
     # Extensive HA conf validation testing is done
-    result = yield from bootstrap.async_from_config_dict({
+    result = await bootstrap.async_from_config_dict({
         'homeassistant': {
             'latitude': 'some string'
         }

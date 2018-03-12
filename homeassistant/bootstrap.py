@@ -1,4 +1,5 @@
 """Provide methods to bootstrap a Home Assistant instance."""
+from trio_asyncio import run_asyncio, run_trio
 import asyncio
 import logging
 import logging.handlers
@@ -58,7 +59,7 @@ def from_config_dict(config: Dict[str, Any],
 
     # run task
     hass = hass.loop.run_until_complete(
-        async_from_config_dict(
+        run_trio(async_from_config_dict,
             config, hass, config_dir, enable_log, verbose, skip_pip,
             log_rotate_days, log_file)
     )
@@ -66,8 +67,7 @@ def from_config_dict(config: Dict[str, Any],
     return hass
 
 
-@asyncio.coroutine
-def async_from_config_dict(config: Dict[str, Any],
+async def async_from_config_dict(config: Dict[str, Any],
                            hass: core.HomeAssistant,
                            config_dir: Optional[str] = None,
                            enable_log: bool = True,
@@ -97,12 +97,12 @@ def async_from_config_dict(config: Dict[str, Any],
     core_config = config.get(core.DOMAIN, {})
 
     try:
-        yield from conf_util.async_process_ha_core_config(hass, core_config)
+        await run_asyncio(conf_util.async_process_ha_core_config,hass, core_config)
     except vol.Invalid as ex:
         conf_util.async_log_exception(ex, 'homeassistant', core_config, hass)
         return None
 
-    yield from hass.async_add_job(conf_util.process_ha_config_upgrade, hass)
+    await run_asyncio(hass.async_add_job,conf_util.process_ha_config_upgrade, hass)
 
     hass.config.skip_pip = skip_pip
     if skip_pip:
@@ -110,7 +110,7 @@ def async_from_config_dict(config: Dict[str, Any],
                         "This may cause issues")
 
     if not loader.PREPARED:
-        yield from hass.async_add_job(loader.prepare, hass)
+        await run_asyncio(hass.async_add_job,loader.prepare, hass)
 
     # Make a copy because we are mutating it.
     config = OrderedDict(config)
@@ -125,7 +125,7 @@ def async_from_config_dict(config: Dict[str, Any],
             config[key] = {}
 
     hass.config_entries = config_entries.ConfigEntries(hass, config)
-    yield from hass.config_entries.async_load()
+    await run_asyncio(hass.config_entries.async_load)
 
     # Filter out the repeating and common config section [homeassistant]
     components = set(key.split(' ')[0] for key in config.keys()
@@ -134,13 +134,13 @@ def async_from_config_dict(config: Dict[str, Any],
 
     # setup components
     # pylint: disable=not-an-iterable
-    res = yield from core_components.async_setup(hass, config)
+    res = await run_asyncio(core_components.async_setup, hass, config)
     if not res:
         _LOGGER.error("Home Assistant core failed to initialize. "
                       "further initialization aborted")
         return hass
 
-    yield from persistent_notification.async_setup(hass, config)
+    await run_asyncio(persistent_notification.async_setup, hass, config)
 
     _LOGGER.info("Home Assistant core initialized")
 
@@ -150,7 +150,7 @@ def async_from_config_dict(config: Dict[str, Any],
             continue
         hass.async_add_job(async_setup_component(hass, component, config))
 
-    yield from hass.async_block_till_done()
+    await run_asyncio(hass.async_block_till_done)
 
     # stage 2
     for component in components:
@@ -158,7 +158,7 @@ def async_from_config_dict(config: Dict[str, Any],
             continue
         hass.async_add_job(async_setup_component(hass, component, config))
 
-    yield from hass.async_block_till_done()
+    await run_asyncio(hass.async_block_till_done)
 
     stop = time()
     _LOGGER.info("Home Assistant initialized in %.2fs", stop-start)
@@ -183,15 +183,14 @@ def from_config_file(config_path: str,
 
     # run task
     hass = hass.loop.run_until_complete(
-        async_from_config_file(
+        trio_asyncio.run_trio(async_from_config_file,
             config_path, hass, verbose, skip_pip, log_rotate_days, log_file)
     )
 
     return hass
 
 
-@asyncio.coroutine
-def async_from_config_file(config_path: str,
+async def async_from_config_file(config_path: str,
                            hass: core.HomeAssistant,
                            verbose: bool = False,
                            skip_pip: bool = True,
@@ -205,12 +204,12 @@ def async_from_config_file(config_path: str,
     # Set config dir to directory holding config file
     config_dir = os.path.abspath(os.path.dirname(config_path))
     hass.config.config_dir = config_dir
-    yield from async_mount_local_lib_path(config_dir, hass.loop)
+    trio_asyncio.run_asyncio(async_mount_local_lib_path, config_dir, hass.loop)
 
     async_enable_logging(hass, verbose, log_rotate_days, log_file)
 
     try:
-        config_dict = yield from hass.async_add_job(
+        config_dict = await run_asyncio(hass.async_add_job,
             conf_util.load_yaml_config_file, config_path)
     except HomeAssistantError as err:
         _LOGGER.error("Error loading %s: %s", config_path, err)
@@ -218,7 +217,7 @@ def async_from_config_file(config_path: str,
     finally:
         clear_secret_cache()
 
-    hass = yield from async_from_config_dict(
+    hass = await async_from_config_dict(
         config_dict, hass, enable_log=False, skip_pip=skip_pip)
     return hass
 
