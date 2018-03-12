@@ -34,7 +34,10 @@ def patch_weakref_tasks():
             """No-op add."""
             return
 
-    asyncio.tasks.Task._all_tasks = IgnoreCalls()
+    try:
+        asyncio.tasks.Task._all_tasks = IgnoreCalls()
+    except:  # noqa: E722
+        pass
     try:
         del asyncio.tasks.Task.__del__
     except:  # noqa: E722
