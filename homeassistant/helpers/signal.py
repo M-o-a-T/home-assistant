@@ -28,6 +28,12 @@ def async_register_signal_handling(hass):
 
         try:
             hass.loop.add_signal_handler(
+                signal.SIGINT, async_signal_handle, 0)
+        except ValueError:
+            _LOGGER.warning("Could not bind to SIGINT")
+
+        try:
+            hass.loop.add_signal_handler(
                 signal.SIGHUP, async_signal_handle, RESTART_EXIT_CODE)
         except ValueError:
             _LOGGER.warning("Could not bind to SIGHUP")
