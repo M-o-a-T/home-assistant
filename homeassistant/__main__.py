@@ -2,6 +2,7 @@
 from __future__ import print_function
 
 import trio_asyncio
+import trio
 import argparse
 import os
 import platform
@@ -225,8 +226,9 @@ def cmdline() -> List[str]:
     return [arg for arg in sys.argv if arg != '--daemon']
 
 
-def setup_and_run_hass(config_dir: str,
-                       args: argparse.Namespace) -> Optional[int]:
+async def setup_and_run_hass(config_dir: str,
+                       args: argparse.Namespace,
+                       *, task_status=trio.TASK_STATUS_IGNORED) -> Optional[int]:
     """Set up HASS and run."""
     from homeassistant import bootstrap
 
@@ -246,37 +248,37 @@ def setup_and_run_hass(config_dir: str,
             'frontend': {},
             'demo': {}
         }
-        hass = bootstrap.from_config_dict(
+        mgr = bootstrap.async_from_config_dict(
             config, config_dir=config_dir, verbose=args.verbose,
             skip_pip=args.skip_pip, log_rotate_days=args.log_rotate_days,
             log_file=args.log_file)
     else:
         config_file = ensure_config_file(config_dir)
         print('Config directory:', config_dir)
-        hass = bootstrap.from_config_file(
+        mgr = bootstrap.async_from_config_file(
             config_file, verbose=args.verbose, skip_pip=args.skip_pip,
             log_rotate_days=args.log_rotate_days, log_file=args.log_file)
 
-    if hass is None:
-        return None
+    with mgr as hass:
+        if hass is None:
+            return None
 
-    if args.open_ui:
-        # Imported here to avoid importing asyncio before monkey patch
-        from homeassistant.util.async_ import run_callback_threadsafe
+        if args.open_ui:
+            # Imported here to avoid importing asyncio before monkey patch
+            from homeassistant.util.async_ import run_callback_threadsafe
 
-        def open_browser(event):
-            """Open the webinterface in a browser."""
-            if hass.config.api is not None:
-                import webbrowser
-                webbrowser.open(hass.config.api.base_url)
+            def open_browser(event):
+                """Open the webinterface in a browser."""
+                if hass.config.api is not None:
+                    import webbrowser
+                    webbrowser.open(hass.config.api.base_url)
 
-        run_callback_threadsafe(
-            hass.loop,
-            hass.bus.async_listen_once,
-            EVENT_HOMEASSISTANT_START, open_browser
-        )
+            hass.bus.async_listen_once(EVENT_HOMEASSISTANT_START, open_browser)
 
-    return hass.start()
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_START,
+            lambda _: task_status.started)
+
+        await hass.loop.run_asyncio(hass.async_start)
 
 
 def try_to_restart() -> None:
@@ -347,7 +349,7 @@ def main() -> int:
     if args.pid_file:
         write_pid(args.pid_file)
 
-    exit_code = setup_and_run_hass(config_dir, args)
+    exit_code = trio.run(setup_and_run_hass, config_dir, args)
     if exit_code == RESTART_EXIT_CODE and not args.runner:
         try_to_restart()
 

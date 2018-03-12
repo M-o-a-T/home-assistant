@@ -1,9 +1,12 @@
 """Script to run benchmarks."""
 import argparse
 import asyncio
+import trio_asyncio
+import trio
 from contextlib import suppress
 from datetime import datetime
 import logging
+import time
 from timeit import default_timer as timer
 
 from homeassistant import core
@@ -16,6 +19,15 @@ BENCHMARKS = {}
 
 def run(args):
     """Handle ensure configuration commandline script."""
+    #import cProfile as pr
+    #p=pr.Profile(time.perf_counter)
+    #p.runcall(trio_asyncio.run,run_, args)
+    #p.dump_stats("/tmp/stats")
+    trio_asyncio.run(run_, args)
+
+async def run_(args):
+    loop = asyncio.get_event_loop()
+
     # Disable logging
     logging.getLogger('homeassistant.core').setLevel(logging.CRITICAL)
 
@@ -32,13 +44,12 @@ def run(args):
 
     with suppress(KeyboardInterrupt):
         while True:
-            loop = asyncio.new_event_loop()
-            hass = core.HomeAssistant(loop)
-            hass.async_stop_track_tasks()
-            runtime = loop.run_until_complete(bench(hass))
-            print('Benchmark {} done in {}s'.format(bench.__name__, runtime))
-            loop.run_until_complete(hass.async_stop())
-            loop.close()
+            async with trio.open_nursery() as nursery:
+                hass = core.HomeAssistant(loop=loop, nursery=nursery)
+                hass.async_stop_track_tasks()
+                runtime = await loop.run_asyncio(bench,hass)
+                print('Benchmark {} done in {}s'.format(bench.__name__, runtime))
+                await loop.run_asyncio(hass.async_stop)
 
     return 0
 
@@ -182,7 +193,7 @@ def _logbook_filtering(hass, last_changed, last_updated):
         'new_state': new_state
     })
 
-    events = [event] * 10**5
+    events = [event] * 10**6
 
     start = timer()
 

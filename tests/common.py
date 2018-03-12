@@ -1,4 +1,5 @@
 """Test the helper method for writing tests."""
+import trio_asyncio
 import asyncio
 from datetime import timedelta
 import functools as ft
@@ -69,38 +70,45 @@ def get_test_config_dir(*add_path):
 
 def get_test_home_assistant():
     """Return a Home Assistant object pointing at test config directory."""
-    if sys.platform == "win32":
-        loop = asyncio.ProactorEventLoop()
-    else:
-        loop = asyncio.new_event_loop()
+    loop = None
+    hass = None
 
-    hass = loop.run_until_complete(async_test_home_assistant(loop))
-
+    start_event = threading.Event()
     stop_event = threading.Event()
 
-    def run_loop():
-        """Run event loop."""
-        # pylint: disable=protected-access
-        loop._thread_ident = threading.get_ident()
-        loop.run_forever()
+    async def async_run_loop():
+        """Run event loop, in-Trio part"""
+        nonlocal loop,hass
+        loop = asyncio.get_event_loop()
+        hass = await trio_asyncio.run_asyncio(async_test_home_assistant,loop)
+
+        orig_stop = hass.stop
+
+        def start_hass(*mocks):
+            """Start hass."""
+            run_coroutine_threadsafe(hass.async_start(), loop=hass.loop).result()
+
+        def stop_hass():
+            """Stop hass."""
+            if not loop.is_running():
+                return
+            # waiting for the result would deadlock!
+            run_coroutine_threadsafe(hass.async_stop(), loop=hass.loop)
+            stop_event.wait()
+
+        hass.start = start_hass
+        hass.stop = stop_hass
+
+        start_event.set()
+        await loop.synchronize()
+        await loop.wait_stopped()
         stop_event.set()
 
-    orig_stop = hass.stop
-
-    def start_hass(*mocks):
-        """Start hass."""
-        run_coroutine_threadsafe(hass.async_start(), loop=hass.loop).result()
-
-    def stop_hass():
-        """Stop hass."""
-        orig_stop()
-        stop_event.wait()
-        loop.close()
-
-    hass.start = start_hass
-    hass.stop = stop_hass
+    def run_loop():
+        trio_asyncio.run(async_run_loop)
 
     threading.Thread(name="LoopThread", target=run_loop, daemon=False).start()
+    start_event.wait()
 
     return hass
 

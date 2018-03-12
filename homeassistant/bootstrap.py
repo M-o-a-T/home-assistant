@@ -36,7 +36,7 @@ FIRST_INIT_COMPONENT = set((
     'introduction', 'frontend', 'history'))
 
 
-def from_config_dict(config: Dict[str, Any],
+async def from_config_dict(config: Dict[str, Any],
                      hass: Optional[core.HomeAssistant] = None,
                      config_dir: Optional[str] = None,
                      enable_log: bool = True,
@@ -50,21 +50,23 @@ def from_config_dict(config: Dict[str, Any],
     Dynamically loads required components and its dependencies.
     """
     if hass is None:
-        hass = core.HomeAssistant()
-        if config_dir is not None:
-            config_dir = os.path.abspath(config_dir)
-            hass.config.config_dir = config_dir
-            hass.loop.run_until_complete(
-                async_mount_local_lib_path(config_dir, hass.loop))
+        with trio.open_nursery() as nursery:
+            hass = core.HomeAssistant(nursery)
+            if config_dir is not None:
+                config_dir = os.path.abspath(config_dir)
+                hass.config.config_dir = config_dir
+                await hass.loop.run_asyncio(
+                    async_mount_local_lib_path, config_dir, hass.loop)
 
-    # run task
-    hass = hass.loop.run_until_complete(
-        run_trio(async_from_config_dict,
+            hass = await async_from_config_dict(
+                config, hass, config_dir, enable_log, verbose, skip_pip,
+                log_rotate_days, log_file)
+            yield hass
+    else:
+        hass = await async_from_config_dict(
             config, hass, config_dir, enable_log, verbose, skip_pip,
             log_rotate_days, log_file)
-    )
-
-    return hass
+        yield hass
 
 
 async def async_from_config_dict(config: Dict[str, Any],
@@ -167,7 +169,7 @@ async def async_from_config_dict(config: Dict[str, Any],
     return hass
 
 
-def from_config_file(config_path: str,
+async def from_config_file(config_path: str,
                      hass: Optional[core.HomeAssistant] = None,
                      verbose: bool = False,
                      skip_pip: bool = True,
@@ -179,15 +181,17 @@ def from_config_file(config_path: str,
     instantiates a new Home Assistant object if 'hass' is not given.
     """
     if hass is None:
-        hass = core.HomeAssistant()
+        with trio.open_nursery() as nursery:
+            hass = core.HomeAssistant(nursery)
 
     # run task
-    hass = hass.loop.run_until_complete(
-        trio_asyncio.run_trio(async_from_config_file,
-            config_path, hass, verbose, skip_pip, log_rotate_days, log_file)
-    )
+            yield await hass.loop.run_trio(async_from_config_file,
+                    config_path, hass, verbose, skip_pip, log_rotate_days, log_file)
+    else:
+        yield await hass.loop.run_trio(async_from_config_file,
+                config_path, hass, verbose, skip_pip, log_rotate_days, log_file)
 
-    return hass
+    return
 
 
 async def async_from_config_file(config_path: str,
@@ -204,7 +208,7 @@ async def async_from_config_file(config_path: str,
     # Set config dir to directory holding config file
     config_dir = os.path.abspath(os.path.dirname(config_path))
     hass.config.config_dir = config_dir
-    trio_asyncio.run_asyncio(async_mount_local_lib_path, config_dir, hass.loop)
+    await run_asyncio(async_mount_local_lib_path, config_dir, hass.loop)
 
     async_enable_logging(hass, verbose, log_rotate_days, log_file)
 

@@ -4,9 +4,10 @@ import pytest
 import os
 from unittest.mock import Mock, patch
 import logging
+import trio_asyncio
 
 import homeassistant.config as config_util
-from homeassistant import bootstrap
+from homeassistant import bootstrap, core
 import homeassistant.util.dt as dt_util
 
 from tests.common import patch_yaml_files, get_test_config_dir
@@ -28,25 +29,30 @@ _LOGGER = logging.getLogger(__name__)
 @patch('os.access', Mock(return_value=True))
 @patch('homeassistant.bootstrap.async_enable_logging',
        Mock(return_value=True))
-async def test_from_config_file(hass):
+def test_from_config_file():
+    trio_asyncio.run(_test_from_config_file)
+async def _test_from_config_file():
     """Test with configuration file."""
     components = set(['browser', 'conversation', 'script'])
     files = {
         'config.yaml': ''.join('{}:\n'.format(comp) for comp in components)
     }
 
+    hass = core.HomeAssistant()
     with patch_yaml_files(files, True):
-        await bootstrap.async_from_config_file('config.yaml')
+        await bootstrap.async_from_config_file('config.yaml', hass)
 
     assert components == hass.config.components
 
 
-@pytest.mark.trio
 @patch('homeassistant.bootstrap.async_enable_logging', Mock())
 @patch('homeassistant.bootstrap.async_register_signal_handling', Mock())
-async def test_home_assistant_core_config_validation(hass):
+def test_home_assistant_core_config_validation():
+    trio_asyncio.run(_test_home_assistant_core_config_validation)
+async def _test_home_assistant_core_config_validation():
     """Test if we pass in wrong information for HA conf."""
     # Extensive HA conf validation testing is done
+    hass = core.HomeAssistant()
     result = await bootstrap.async_from_config_dict({
         'homeassistant': {
             'latitude': 'some string'

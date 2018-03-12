@@ -111,9 +111,10 @@ class CoreState(enum.Enum):
 class HomeAssistant(object):
     """Root object of the Home Assistant home automation."""
 
-    def __init__(self, loop=None):
+    def __init__(self, loop=None, nursery=None):
         """Initialize new Home Assistant object."""
         self.loop = loop or asyncio.get_event_loop()
+        self.nursery = nursery
 
         executor_opts = {'max_workers': 10}
         if sys.version_info[:2] >= (3, 5):
@@ -146,7 +147,10 @@ class HomeAssistant(object):
         return self.state in (CoreState.starting, CoreState.running)
 
     def start(self) -> None:
-        """Start home assistant."""
+        """Start home assistant.
+
+        Note: This function is only used for testing.
+        """
         # Register the async start
         fire_coroutine_threadsafe(self.async_start(), self.loop)
 
@@ -293,8 +297,12 @@ class HomeAssistant(object):
         await self.async_block_till_done()
         self.executor.shutdown()
 
+        if self.nursery is None:
+            self.loop.stop()
+        else:
+            self.nursery.cancel_scope.cancel()
+
         self.exit_code = exit_code
-        self.loop.stop()
 
 
 class EventOrigin(enum.Enum):
