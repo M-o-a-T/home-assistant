@@ -58,8 +58,8 @@ REQUIRES = [
     'trio-asyncio',
 ]
 dependency_links=[
-    'git+ssh://git@github.com/python-trio/trio.git',
-    'git+ssh://git@github.com/python-trio/trio-asyncio.git',
+    'git+https://github.com/python-trio/trio.git',
+    'git+https://github.com/python-trio/trio-asyncio.git',
 ]
 
 MIN_PY_VERSION = '.'.join(map(str, hass_const.REQUIRED_PYTHON_VER))
