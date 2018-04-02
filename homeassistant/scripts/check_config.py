@@ -95,9 +95,12 @@ def run(script_args: List) -> int:
     if args.files:
         print(color(C_HEAD, 'yaml files'), '(used /',
               color('red', 'not used') + ')')
-        # Python 3.5 gets a recursive, but not in 3.4
-        for yfn in sorted(glob(os.path.join(config_dir, '*.yaml')) +
-                          glob(os.path.join(config_dir, '*/*.yaml'))):
+        deps = os.path.join(config_dir, 'deps')
+        yaml_files = [f for f in glob(os.path.join(config_dir, '**/*.yaml'),
+                                      recursive=True)
+                      if not f.startswith(deps)]
+
+        for yfn in sorted(yaml_files):
             the_color = '' if yfn in res['yaml_files'] else 'red'
             print(color(the_color, '-', yfn))
 
@@ -249,7 +252,7 @@ def dump_dict(layer, indent_count=3, listi=False, **kwargs):
     """
     def sort_dict_key(val):
         """Return the dict key for sorting."""
-        key = str.lower(val[0])
+        key = str(val[0]).lower()
         return '0' if key == 'platform' else key
 
     indent_str = indent_count * ' '
@@ -258,10 +261,10 @@ def dump_dict(layer, indent_count=3, listi=False, **kwargs):
     if isinstance(layer, Dict):
         for key, value in sorted(layer.items(), key=sort_dict_key):
             if isinstance(value, (dict, list)):
-                print(indent_str, key + ':', line_info(value, **kwargs))
+                print(indent_str, str(key) + ':', line_info(value, **kwargs))
                 dump_dict(value, indent_count + 2)
             else:
-                print(indent_str, key + ':', value)
+                print(indent_str, str(key) + ':', value)
             indent_str = indent_count * ' '
     if isinstance(layer, Sequence):
         for i in layer:
