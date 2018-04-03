@@ -85,6 +85,7 @@ TEST_REQUIREMENTS = (
     'somecomfort',
     'sqlalchemy',
     'statsd',
+    'trio-asyncio',
     'uvcclient',
     'voluptuous-serialize',
     'warrant',
