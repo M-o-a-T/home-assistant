@@ -42,7 +42,7 @@ async def _test_from_config_file():
     with patch_yaml_files(files, True):
         await bootstrap.async_from_config_file('config.yaml', hass)
 
-    assert components == hass.config.components
+    assert components.issubset(hass.config.components)
 
 
 @patch('homeassistant.bootstrap.async_enable_logging', Mock())
