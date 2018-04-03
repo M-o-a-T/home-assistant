@@ -78,6 +78,7 @@ class TestHomeKit(unittest.TestCase):
         homekit.configure_mock(**{'started': False})
 
         self.hass.services.call('homekit', 'start')
+        self.hass.block_till_done()
         self.assertEqual(homekit.mock_calls, [call.start()])
 
         # Test start call with driver started.
