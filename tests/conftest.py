@@ -20,6 +20,7 @@ from tests.mock.zwave import MockNetwork, MockOption
 logging.basicConfig()
 logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
 
+asyncio.set_event_loop_policy(trio_asyncio.TrioPolicy())
 
 def test_real(func):
     """Force a function to require a keyword _test_real to be passed in."""
