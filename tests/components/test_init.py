@@ -74,6 +74,7 @@ class TestComponentsCore(unittest.TestCase):
         self.hass.block_till_done()
         self.assertEqual(1, len(calls))
 
+    @unittest.skip("TODO: async code doesn't, within unittest classes")
     @patch('homeassistant.core.ServiceRegistry.call')
     async def test_turn_on_to_not_block_for_domains_without_service(self,
                                                                     mock_call):
