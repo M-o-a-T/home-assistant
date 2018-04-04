@@ -113,7 +113,7 @@ class HomeAssistant(object):
 
     def __init__(self, loop=None, nursery=None):
         """Initialize new Home Assistant object."""
-        self.loop = loop or asyncio.get_event_loop()
+        self.loop = loop or asyncio.get_running_loop()
         self.nursery = nursery
 
         executor_opts = {'max_workers': None}
