@@ -282,11 +282,10 @@ def async_enable_logging(hass: core.HomeAssistant, verbose: bool = False,
 
         async_handler = AsyncHandler(hass.loop, err_handler)
 
-        @asyncio.coroutine
-        def async_stop_async_handler(event):
+        async def async_stop_async_handler(event):
             """Cleanup async handler."""
             logging.getLogger('').removeHandler(async_handler)
-            yield from async_handler.async_close(blocking=True)
+            await async_handler.async_close(blocking=True)
 
         hass.bus.async_listen_once(
             EVENT_HOMEASSISTANT_CLOSE, async_stop_async_handler)
@@ -311,15 +310,14 @@ def mount_local_lib_path(config_dir: str) -> str:
     return deps_dir
 
 
-@asyncio.coroutine
-def async_mount_local_lib_path(config_dir: str,
+async def async_mount_local_lib_path(config_dir: str,
                                loop: TrioEventLoop) -> str:
     """Add local library to Python Path.
 
     This function is a coroutine.
     """
     deps_dir = os.path.join(config_dir, 'deps')
-    lib_dir = yield from async_get_user_site(deps_dir, loop=loop)
+    lib_dir = await async_get_user_site(deps_dir, loop=loop)
     if lib_dir not in sys.path:
         sys.path.insert(0, lib_dir)
     return deps_dir
