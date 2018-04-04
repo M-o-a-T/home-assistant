@@ -1,6 +1,6 @@
 """Provide methods to bootstrap a Home Assistant instance."""
-from trio_asyncio import run_asyncio, run_trio
-import asyncio
+import trio
+from trio_asyncio import run_asyncio, run_trio, TrioEventLoop
 import logging
 import logging.handlers
 import os
@@ -313,7 +313,7 @@ def mount_local_lib_path(config_dir: str) -> str:
 
 @asyncio.coroutine
 def async_mount_local_lib_path(config_dir: str,
-                               loop: asyncio.AbstractEventLoop) -> str:
+                               loop: TrioEventLoop) -> str:
     """Add local library to Python Path.
 
     This function is a coroutine.
