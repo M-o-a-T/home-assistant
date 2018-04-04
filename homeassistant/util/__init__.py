@@ -28,6 +28,43 @@ TBL_SLUGIFY = {
 }
 
 
+if not hasattr(asyncio, 'run'):
+
+    def run(main, *, debug=False):
+        loop = asyncio.new_event_loop()
+        loop.set_debug(debug)
+        return loop.run(main)
+
+    asyncio.run = run
+
+if not hasattr(asyncio, 'current_task'):
+
+    def current_task(loop=None):
+        return asyncio.Task.current_task(loop)
+
+    asyncio.current_task = current_task
+
+if not hasattr(asyncio, 'all_tasks'):
+
+    def all_tasks(loop=None):
+        return asyncio.Task.all_tasks(loop)
+
+    asyncio.all_tasks = all_tasks
+
+if not hasattr(asyncio.events, 'get_running_loop'):
+    asyncio.get_running_loop = \
+    asyncio.events.get_running_loop = \
+    asyncio.events._get_running_loop
+
+if not hasattr(asyncio, 'create_task'):
+
+    def create_task(coro):
+        loop = asyncio.events.get_running_loop()
+        return loop.create_task(coro)
+
+    asyncio.create_task = create_task
+
+
 def sanitize_filename(filename: str) -> str:
     r"""Sanitize a filename by removing .. / and \\."""
     return RE_SANITIZE_FILENAME.sub("", filename)
