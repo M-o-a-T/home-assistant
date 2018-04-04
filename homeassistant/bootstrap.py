@@ -53,7 +53,7 @@ async def from_config_dict(config: Dict[str, Any],
     """
     if hass is None:
         with trio.open_nursery() as nursery:
-            hass = core.HomeAssistant(nursery)
+            hass = core.HomeAssistant(nursery=nursery)
             if config_dir is not None:
                 config_dir = os.path.abspath(config_dir)
                 hass.config.config_dir = config_dir
@@ -176,8 +176,8 @@ async def from_config_file(config_path: str,
     instantiates a new Home Assistant object if 'hass' is not given.
     """
     if hass is None:
-        with trio.open_nursery() as nursery:
-            hass = core.HomeAssistant(nursery)
+        async with trio.open_nursery() as nursery:
+            hass = core.HomeAssistant(nursery=nursery)
 
     # run task
             yield await async_from_config_file(
