@@ -279,6 +279,7 @@ async def setup_and_run_hass(config_dir: str,
             lambda _: task_status.started)
 
         await hass.loop.run_asyncio(hass.async_start)
+        await trio.sleep_forever()
 
 
 def try_to_restart() -> None:
