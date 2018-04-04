@@ -255,11 +255,11 @@ async def setup_and_run_hass(config_dir: str,
     else:
         config_file = ensure_config_file(config_dir)
         print('Config directory:', config_dir)
-        mgr = bootstrap.async_from_config_file(
+        mgr = bootstrap.from_config_file(
             config_file, verbose=args.verbose, skip_pip=args.skip_pip,
             log_rotate_days=args.log_rotate_days, log_file=args.log_file)
 
-    with mgr as hass:
+    async with mgr as hass:
         if hass is None:
             return None
 
@@ -350,7 +350,7 @@ def main() -> int:
     if args.pid_file:
         write_pid(args.pid_file)
 
-    exit_code = trio.run(setup_and_run_hass, config_dir, args)
+    exit_code = trio_asyncio.run(setup_and_run_hass, config_dir, args)
     if exit_code == RESTART_EXIT_CODE and not args.runner:
         try_to_restart()
 

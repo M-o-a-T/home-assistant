@@ -23,6 +23,7 @@ from homeassistant.util.package import async_get_user_site, get_user_site
 from homeassistant.util.yaml import clear_secret_cache
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.signal import async_register_signal_handling
+from async_generator import asynccontextmanager
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ FIRST_INIT_COMPONENT = set((
     'introduction', 'frontend', 'history'))
 
 
+@asynccontextmanager
 async def from_config_dict(config: Dict[str, Any],
                      hass: Optional[core.HomeAssistant] = None,
                      config_dir: Optional[str] = None,
@@ -161,6 +163,7 @@ async def async_from_config_dict(config: Dict[str, Any],
     return hass
 
 
+@asynccontextmanager
 async def from_config_file(config_path: str,
                      hass: Optional[core.HomeAssistant] = None,
                      verbose: bool = False,
@@ -177,10 +180,10 @@ async def from_config_file(config_path: str,
             hass = core.HomeAssistant(nursery)
 
     # run task
-            yield await hass.loop.run_trio(async_from_config_file,
+            yield await async_from_config_file(
                     config_path, hass, verbose, skip_pip, log_rotate_days, log_file)
     else:
-        yield await hass.loop.run_trio(async_from_config_file,
+        yield await async_from_config_file(
                 config_path, hass, verbose, skip_pip, log_rotate_days, log_file)
 
     return
