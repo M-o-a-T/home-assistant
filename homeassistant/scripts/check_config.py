@@ -331,7 +331,7 @@ def check_ha_config_file(config_dir):
     # Merge packages
     merge_packages_config(
         config, core_config.get(CONF_PACKAGES, {}), _pack_error)
-    del core_config[CONF_PACKAGES]
+    core_config.pop(CONF_PACKAGES, None)
 
     # Ensure we have no None values after merge
     for key, value in config.items():
