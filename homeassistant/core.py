@@ -17,7 +17,7 @@ import threading
 from time import monotonic
 
 from types import MappingProxyType
-from typing import Optional, Any, Callable, List  # NOQA
+from typing import Optional, Any, Callable, List, TypeVar, Dict  # NOQA
 
 from async_timeout import timeout
 import voluptuous as vol
@@ -41,6 +41,8 @@ import homeassistant.util as util
 import homeassistant.util.dt as dt_util
 import homeassistant.util.location as location
 from homeassistant.util.unit_system import UnitSystem, METRIC_SYSTEM  # NOQA
+
+T = TypeVar('T')
 
 DOMAIN = 'homeassistant'
 
@@ -71,16 +73,15 @@ def valid_state(state: str) -> bool:
     return len(state) < 256
 
 
-def callback(func: Callable[..., None]) -> Callable[..., None]:
+def callback(func: Callable[..., T]) -> Callable[..., T]:
     """Annotation to mark method as safe to call from within the event loop."""
-    # pylint: disable=protected-access
-    func._hass_callback = True
+    setattr(func, '_hass_callback', True)
     return func
 
 
 def is_callback(func: Callable[..., Any]) -> bool:
     """Check if function is safe to be called in the event loop."""
-    return '_hass_callback' in getattr(func, '__dict__', {})
+    return getattr(func, '_hass_callback', False) is True
 
 
 @callback
@@ -136,13 +137,14 @@ class HomeAssistant(object):
         self.data = {}
         self.state = CoreState.not_running
         self.exit_code = None
+        self.config_entries = None
 
     @property
     def is_running(self) -> bool:
         """Return if Home Assistant is running."""
         return self.state in (CoreState.starting, CoreState.running)
 
-    def start(self) -> None:
+    def start(self) -> int:
         """Start home assistant.
 
         Note: This function is only used for testing.
@@ -155,13 +157,13 @@ class HomeAssistant(object):
             # Block until stopped
             _LOGGER.info("Starting Home Assistant core loop")
             self.loop.run_forever()
-            return self.exit_code
         except KeyboardInterrupt:
             self.loop.call_soon_threadsafe(
                 self.loop.create_task, self.async_stop())
             self.loop.run_forever()
         finally:
             self.loop.close()
+        return self.exit_code
 
     async def async_start(self):
         """Finalize startup from inside the event loop.
@@ -203,7 +205,10 @@ class HomeAssistant(object):
         self.loop.call_soon_threadsafe(self.async_add_job, target, *args)
 
     @callback
-    def async_add_job(self, target: Callable[..., None], *args: Any) -> None:
+    def async_add_job(
+            self,
+            target: Callable[..., Any],
+            *args: Any) -> Optional[asyncio.tasks.Task]:
         """Add a job from within the eventloop.
 
         This method must be run in the event loop.
@@ -362,7 +367,7 @@ class EventBus(object):
 
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize a new event bus."""
-        self._listeners = {}
+        self._listeners = {}  # type: Dict[str, List[Callable]]
         self._hass = hass
 
     @callback
@@ -1047,7 +1052,7 @@ class Config(object):
         # List of allowed external dirs to access
         self.whitelist_external_dirs = set()
 
-    def distance(self: object, lat: float, lon: float) -> float:
+    def distance(self, lat: float, lon: float) -> float:
         """Calculate distance from Home Assistant.
 
         Async friendly.

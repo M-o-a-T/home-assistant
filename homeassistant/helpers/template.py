@@ -16,7 +16,7 @@ from homeassistant.const import (
 from homeassistant.core import State, valid_entity_id
 from homeassistant.exceptions import TemplateError
 from homeassistant.helpers import location as loc_helper
-from homeassistant.loader import bind_hass, get_component
+from homeassistant.loader import bind_hass
 from homeassistant.util import convert
 from homeassistant.util import dt as dt_util
 from homeassistant.util import location as loc_util
@@ -349,10 +349,10 @@ class TemplateMethods(object):
             else:
                 gr_entity_id = str(entities)
 
-            group = get_component('group')
+            group = self._hass.components.group
 
             states = [self._hass.states.get(entity_id) for entity_id
-                      in group.expand_entity_ids(self._hass, [gr_entity_id])]
+                      in group.expand_entity_ids([gr_entity_id])]
 
         return _wrap_state(loc_helper.closest(latitude, longitude, states))
 
@@ -452,6 +452,38 @@ def logarithm(value, base=math.e):
         return value
 
 
+def sine(value):
+    """Filter to get sine of the value."""
+    try:
+        return math.sin(float(value))
+    except (ValueError, TypeError):
+        return value
+
+
+def cosine(value):
+    """Filter to get cosine of the value."""
+    try:
+        return math.cos(float(value))
+    except (ValueError, TypeError):
+        return value
+
+
+def tangent(value):
+    """Filter to get tangent of the value."""
+    try:
+        return math.tan(float(value))
+    except (ValueError, TypeError):
+        return value
+
+
+def square_root(value):
+    """Filter to get square root of the value."""
+    try:
+        return math.sqrt(float(value))
+    except (ValueError, TypeError):
+        return value
+
+
 def timestamp_custom(value, date_format=DATE_STR_FORMAT, local=True):
     """Filter to convert given timestamp to format."""
     try:
@@ -516,6 +548,39 @@ def forgiving_float(value):
         return value
 
 
+def regex_match(value, find='', ignorecase=False):
+    """Match value using regex."""
+    if not isinstance(value, str):
+        value = str(value)
+    flags = re.I if ignorecase else 0
+    return bool(re.match(find, value, flags))
+
+
+def regex_replace(value='', find='', replace='', ignorecase=False):
+    """Replace using regex."""
+    if not isinstance(value, str):
+        value = str(value)
+    flags = re.I if ignorecase else 0
+    regex = re.compile(find, flags)
+    return regex.sub(replace, value)
+
+
+def regex_search(value, find='', ignorecase=False):
+    """Search using regex."""
+    if not isinstance(value, str):
+        value = str(value)
+    flags = re.I if ignorecase else 0
+    return bool(re.search(find, value, flags))
+
+
+def regex_findall_index(value, find='', index=0, ignorecase=False):
+    """Find all matches using regex and then pick specific match index."""
+    if not isinstance(value, str):
+        value = str(value)
+    flags = re.I if ignorecase else 0
+    return re.findall(find, value, flags)[index]
+
+
 @contextfilter
 def random_every_time(context, values):
     """Choose a random value.
@@ -538,6 +603,10 @@ ENV = TemplateEnvironment()
 ENV.filters['round'] = forgiving_round
 ENV.filters['multiply'] = multiply
 ENV.filters['log'] = logarithm
+ENV.filters['sin'] = sine
+ENV.filters['cos'] = cosine
+ENV.filters['tan'] = tangent
+ENV.filters['sqrt'] = square_root
 ENV.filters['timestamp_custom'] = timestamp_custom
 ENV.filters['timestamp_local'] = timestamp_local
 ENV.filters['timestamp_utc'] = timestamp_utc
@@ -545,7 +614,18 @@ ENV.filters['is_defined'] = fail_when_undefined
 ENV.filters['max'] = max
 ENV.filters['min'] = min
 ENV.filters['random'] = random_every_time
+ENV.filters['regex_match'] = regex_match
+ENV.filters['regex_replace'] = regex_replace
+ENV.filters['regex_search'] = regex_search
+ENV.filters['regex_findall_index'] = regex_findall_index
 ENV.globals['log'] = logarithm
+ENV.globals['sin'] = sine
+ENV.globals['cos'] = cosine
+ENV.globals['tan'] = tangent
+ENV.globals['sqrt'] = square_root
+ENV.globals['pi'] = math.pi
+ENV.globals['tau'] = math.pi * 2
+ENV.globals['e'] = math.e
 ENV.globals['float'] = forgiving_float
 ENV.globals['now'] = dt_util.now
 ENV.globals['utcnow'] = dt_util.utcnow

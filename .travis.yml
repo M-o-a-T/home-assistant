@@ -6,6 +6,7 @@ addons:
 matrix:
   fast_finish: true
   include:
+<<<<<<< HEAD
     #- python: "3.5.3"
     #  env: TOXENV=lint
     #- python: "3.5.3"
@@ -14,6 +15,25 @@ matrix:
     #   env: TOXENV=typing
     #- python: "3.5.3"
     #  env: TOXENV=py35
+||||||| merged common ancestors
+    - python: "3.5.3"
+      env: TOXENV=lint
+    - python: "3.5.3"
+      env: TOXENV=pylint
+    # - python: "3.5"
+    #   env: TOXENV=typing
+    - python: "3.5.3"
+      env: TOXENV=py35
+=======
+    - python: "3.5.3"
+      env: TOXENV=lint
+    - python: "3.5.3"
+      env: TOXENV=pylint
+    - python: "3.5.3"
+      env: TOXENV=typing
+    - python: "3.5.3"
+      env: TOXENV=py35
+>>>>>>> 07255a29b4c44a6ece10a20c91b062dd906f0cbe
     - python: "3.6"
       env: TOXENV=py36
     # - python: "3.6-dev"
@@ -31,7 +51,7 @@ script: travis_wait 30 tox --develop
 services:
   - docker
 before_deploy:
-  - docker pull lokalise/lokalise-cli@sha256:79b3108211ed1fcc9f7b09a011bfc53c240fc2f3b7fa7f0c8390f593271b4cd7
+  - docker pull lokalise/lokalise-cli@sha256:2198814ebddfda56ee041a4b427521757dd57f75415ea9693696a64c550cef21
 deploy:
   skip_cleanup: true
   provider: script

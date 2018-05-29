@@ -14,15 +14,15 @@ import socket
 import voluptuous as vol
 
 from homeassistant.components.switch import (
-    DOMAIN, PLATFORM_SCHEMA, SwitchDevice)
+    DOMAIN, PLATFORM_SCHEMA, SwitchDevice, ENTITY_ID_FORMAT)
 from homeassistant.const import (
     CONF_COMMAND_OFF, CONF_COMMAND_ON, CONF_FRIENDLY_NAME, CONF_HOST, CONF_MAC,
     CONF_SWITCHES, CONF_TIMEOUT, CONF_TYPE)
 import homeassistant.helpers.config_validation as cv
-from homeassistant.util import Throttle
+from homeassistant.util import Throttle, slugify
 from homeassistant.util.dt import utcnow
 
-REQUIREMENTS = ['broadlink==0.8.0']
+REQUIREMENTS = ['broadlink==0.9.0']
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -150,6 +150,7 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
         for object_id, device_config in devices.items():
             switches.append(
                 BroadlinkRMSwitch(
+                    object_id,
                     device_config.get(CONF_FRIENDLY_NAME, object_id),
                     broadlink_device,
                     device_config.get(CONF_COMMAND_ON),
@@ -184,8 +185,9 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
 class BroadlinkRMSwitch(SwitchDevice):
     """Representation of an Broadlink switch."""
 
-    def __init__(self, friendly_name, device, command_on, command_off):
+    def __init__(self, name, friendly_name, device, command_on, command_off):
         """Initialize the switch."""
+        self.entity_id = ENTITY_ID_FORMAT.format(slugify(name))
         self._name = friendly_name
         self._state = False
         self._command_on = b64decode(command_on) if command_on else None
@@ -255,7 +257,7 @@ class BroadlinkSP1Switch(BroadlinkRMSwitch):
 
     def __init__(self, friendly_name, device):
         """Initialize the switch."""
-        super().__init__(friendly_name, device, None, None)
+        super().__init__(friendly_name, friendly_name, device, None, None)
         self._command_on = 1
         self._command_off = 0
 
@@ -311,7 +313,7 @@ class BroadlinkMP1Slot(BroadlinkRMSwitch):
 
     def __init__(self, friendly_name, device, slot, parent_device):
         """Initialize the slot of switch."""
-        super().__init__(friendly_name, device, None, None)
+        super().__init__(friendly_name, friendly_name, device, None, None)
         self._command_on = 1
         self._command_off = 0
         self._slot = slot

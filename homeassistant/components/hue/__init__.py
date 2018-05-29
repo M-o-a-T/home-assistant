@@ -17,7 +17,7 @@ from .bridge import HueBridge
 # Loading the config flow file will register the flow
 from .config_flow import configured_hosts
 
-REQUIREMENTS = ['aiohue==1.3.0']
+REQUIREMENTS = ['aiohue==1.5.0']
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -131,3 +131,9 @@ async def async_setup_entry(hass, entry):
     bridge = HueBridge(hass, entry, allow_unreachable, allow_groups)
     hass.data[DOMAIN][host] = bridge
     return await bridge.async_setup()
+
+
+async def async_unload_entry(hass, entry):
+    """Unload a config entry."""
+    bridge = hass.data[DOMAIN].pop(entry.data['host'])
+    return await bridge.async_reset()

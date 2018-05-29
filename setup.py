@@ -42,12 +42,16 @@ DOWNLOAD_URL = '{}/archive/{}.zip'.format(GITHUB_URL, hass_const.__version__)
 PACKAGES = find_packages(exclude=['tests', 'tests.*'])
 
 REQUIRES = [
-    'requests==2.18.4',
-    'pyyaml>=3.11,<4',
-    'pytz>=2017.02',
-    'pip>=8.0.3',
+    'aiohttp==3.2.1',
+    'astral==1.6.1',
+    'async_timeout==3.0.0',
+    'attrs==18.1.0',
+    'certifi>=2018.04.16',
     'jinja2>=2.10',
-    'voluptuous==0.11.1',
+    'pip>=8.0.3',
+    'pytz>=2018.04',
+    'pyyaml>=3.11,<4',
+    'requests==2.18.4',
     'typing>=3,<4',
     'aiohttp==3.1.1',
     'async_timeout==2.0.1',
@@ -56,7 +60,9 @@ REQUIRES = [
     'attrs==17.4.0',
     'trio',
     'trio-asyncio',
+    'voluptuous==0.11.1',
 ]
+
 dependency_links=[
     'git+https://github.com/python-trio/trio.git',
     'git+https://github.com/python-trio/trio-asyncio.git',

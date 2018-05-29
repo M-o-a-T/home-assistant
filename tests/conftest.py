@@ -17,12 +17,12 @@ from tests.common import (
 from tests.test_util.aiohttp import mock_aiohttp_client
 from tests.mock.zwave import MockNetwork, MockOption
 
-logging.basicConfig()
+logging.basicConfig(level=logging.INFO)
 logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
 
 asyncio.set_event_loop_policy(trio_asyncio.TrioPolicy())
 
-def test_real(func):
+def check_real(func):
     """Force a function to require a keyword _test_real to be passed in."""
     @functools.wraps(func)
     def guard_func(*args, **kwargs):
@@ -38,8 +38,8 @@ def test_real(func):
 
 
 # Guard a few functions that would make network connections
-location.detect_location_info = test_real(location.detect_location_info)
-location.elevation = test_real(location.elevation)
+location.detect_location_info = check_real(location.detect_location_info)
+location.elevation = check_real(location.elevation)
 util.get_local_ip = lambda: '127.0.0.1'
 
 
@@ -121,7 +121,5 @@ def mock_device_tracker_conf():
     ), patch(
         'homeassistant.components.device_tracker.async_load_config',
             side_effect=lambda *args: mock_coro(devices)
-    ), patch('homeassistant.components.device_tracker'
-             '.Device.set_vendor_for_mac'):
-
+    ):
         yield devices

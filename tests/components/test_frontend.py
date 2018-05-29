@@ -9,6 +9,7 @@ from homeassistant.setup import async_setup_component
 from homeassistant.components.frontend import (
     DOMAIN, CONF_JS_VERSION, CONF_THEMES, CONF_EXTRA_HTML_URL,
     CONF_EXTRA_HTML_URL_ES5, DATA_PANELS)
+from homeassistant.components import websocket_api as wapi
 
 
 @pytest.fixture
@@ -56,7 +57,7 @@ def test_frontend_and_static(mock_http_client):
 
     # Test we can retrieve frontend.js
     frontendjs = re.search(
-        r'(?P<app>\/frontend_es5\/frontend-[A-Za-z0-9]{32}.html)', text)
+        r'(?P<app>\/frontend_es5\/app-[A-Za-z0-9]{32}.js)', text)
 
     assert frontendjs is not None
     resp = yield from mock_http_client.get(frontendjs.groups(0)[0])
@@ -189,3 +190,26 @@ def test_panel_without_path(hass):
         'test_component', 'nonexistant_file')
     yield from async_setup_component(hass, 'frontend', {})
     assert 'test_component' not in hass.data[DATA_PANELS]
+
+
+async def test_get_panels(hass, hass_ws_client):
+    """Test get_panels command."""
+    await async_setup_component(hass, 'frontend')
+    await hass.components.frontend.async_register_built_in_panel(
+        'map', 'Map', 'mdi:account-location')
+
+    client = await hass_ws_client(hass)
+    await client.send_json({
+        'id': 5,
+        'type': 'get_panels',
+    })
+
+    msg = await client.receive_json()
+
+    assert msg['id'] == 5
+    assert msg['type'] == wapi.TYPE_RESULT
+    assert msg['success']
+    assert msg['result']['map']['component_name'] == 'map'
+    assert msg['result']['map']['url_path'] == 'map'
+    assert msg['result']['map']['icon'] == 'mdi:account-location'
+    assert msg['result']['map']['title'] == 'Map'

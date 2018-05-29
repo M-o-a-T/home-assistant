@@ -13,8 +13,7 @@ from typing import Any, Optional, Dict
 import voluptuous as vol
 
 from homeassistant import (
-    core, config as conf_util, config_entries, loader,
-    components as core_components)
+    core, config as conf_util, config_entries, components as core_components)
 from homeassistant.components import persistent_notification
 from homeassistant.const import EVENT_HOMEASSISTANT_CLOSE
 from homeassistant.setup import async_setup_component
@@ -45,7 +44,8 @@ async def from_config_dict(config: Dict[str, Any],
                      verbose: bool = False,
                      skip_pip: bool = False,
                      log_rotate_days: Any = None,
-                     log_file: Any = None) \
+                     log_file: Any = None,
+                     log_no_color: bool = False) \
                      -> Optional[core.HomeAssistant]:
     """Try to configure Home Assistant from a configuration dictionary.
 
@@ -67,18 +67,19 @@ async def from_config_dict(config: Dict[str, Any],
     else:
         hass = await async_from_config_dict(
             config, hass, config_dir, enable_log, verbose, skip_pip,
-            log_rotate_days, log_file)
+            log_rotate_days, log_file, log_no_color)
         yield hass
 
 
 async def async_from_config_dict(config: Dict[str, Any],
-                           hass: core.HomeAssistant,
-                           config_dir: Optional[str] = None,
-                           enable_log: bool = True,
-                           verbose: bool = False,
-                           skip_pip: bool = False,
-                           log_rotate_days: Any = None,
-                           log_file: Any = None) \
+                                 hass: core.HomeAssistant,
+                                 config_dir: Optional[str] = None,
+                                 enable_log: bool = True,
+                                 verbose: bool = False,
+                                 skip_pip: bool = False,
+                                 log_rotate_days: Any = None,
+                                 log_file: Any = None,
+                                 log_no_color: bool = False) \
                            -> Optional[core.HomeAssistant]:
     """Try to configure Home Assistant from a configuration dictionary.
 
@@ -88,12 +89,13 @@ async def async_from_config_dict(config: Dict[str, Any],
     start = time()
 
     if enable_log:
-        async_enable_logging(hass, verbose, log_rotate_days, log_file)
+        async_enable_logging(hass, verbose, log_rotate_days, log_file,
+                             log_no_color)
 
     core_config = config.get(core.DOMAIN, {})
 
     try:
-        await run_asyncio(conf_util.async_process_ha_core_config,hass, core_config)
+        await run_asyncio(conf_util.async_process_ha_core_config, hass, core_config)
     except vol.Invalid as ex:
         conf_util.async_log_exception(ex, 'homeassistant', core_config, hass)
         return None
@@ -105,15 +107,12 @@ async def async_from_config_dict(config: Dict[str, Any],
         _LOGGER.warning("Skipping pip installation of required modules. "
                         "This may cause issues")
 
-    if not loader.PREPARED:
-        await run_asyncio(hass.async_add_job,loader.prepare, hass)
-
     # Make a copy because we are mutating it.
     config = OrderedDict(config)
 
     # Merge packages
     conf_util.merge_packages_config(
-        config, core_config.get(conf_util.CONF_PACKAGES, {}))
+        hass, config, core_config.get(conf_util.CONF_PACKAGES, {}))
 
     # Ensure we have no None values after merge
     for key, value in config.items():
@@ -169,7 +168,8 @@ async def from_config_file(config_path: str,
                      verbose: bool = False,
                      skip_pip: bool = True,
                      log_rotate_days: Any = None,
-                     log_file: Any = None):
+                     log_file: Any = None,
+                     log_no_color: bool = False):
     """Read the configuration file and try to start all the functionality.
 
     Will add functionality to 'hass' parameter if given,
@@ -181,20 +181,21 @@ async def from_config_file(config_path: str,
 
     # run task
             yield await async_from_config_file(
-                    config_path, hass, verbose, skip_pip, log_rotate_days, log_file)
+                    config_path, hass, verbose, skip_pip, log_rotate_days, log_file, log_no_color)
     else:
         yield await async_from_config_file(
-                config_path, hass, verbose, skip_pip, log_rotate_days, log_file)
+                config_path, hass, verbose, skip_pip, log_rotate_days, log_file, log_no_color)
 
     return
 
 
 async def async_from_config_file(config_path: str,
-                           hass: core.HomeAssistant,
-                           verbose: bool = False,
-                           skip_pip: bool = True,
-                           log_rotate_days: Any = None,
-                           log_file: Any = None):
+                                 hass: core.HomeAssistant,
+                                 verbose: bool = False,
+                                 skip_pip: bool = True,
+                                 log_rotate_days: Any = None,
+                                 log_file: Any = None,
+                                 log_no_color: bool = False):
     """Read the configuration file and try to start all the functionality.
 
     Will add functionality to 'hass' parameter.
@@ -205,7 +206,8 @@ async def async_from_config_file(config_path: str,
     hass.config.config_dir = config_dir
     await run_asyncio(async_mount_local_lib_path, config_dir, hass.loop)
 
-    async_enable_logging(hass, verbose, log_rotate_days, log_file)
+    async_enable_logging(hass, verbose, log_rotate_days, log_file,
+                         log_no_color)
 
     try:
         config_dict = await run_asyncio(hass.async_add_job,
@@ -222,39 +224,50 @@ async def async_from_config_file(config_path: str,
 
 
 @core.callback
-def async_enable_logging(hass: core.HomeAssistant, verbose: bool = False,
-                         log_rotate_days=None, log_file=None) -> None:
+def async_enable_logging(hass: core.HomeAssistant,
+                         verbose: bool = False,
+                         log_rotate_days=None,
+                         log_file=None,
+                         log_no_color: bool = False) -> None:
     """Set up the logging.
 
     This method must be run in the event loop.
     """
-    logging.basicConfig(level=logging.INFO)
     fmt = ("%(asctime)s %(levelname)s (%(threadName)s) "
            "[%(name)s] %(message)s")
-    colorfmt = "%(log_color)s{}%(reset)s".format(fmt)
     datefmt = '%Y-%m-%d %H:%M:%S'
+
+    if not log_no_color:
+        try:
+            from colorlog import ColoredFormatter
+            # basicConfig must be called after importing colorlog in order to
+            # ensure that the handlers it sets up wraps the correct streams.
+            logging.basicConfig(level=logging.INFO)
+
+            colorfmt = "%(log_color)s{}%(reset)s".format(fmt)
+            logging.getLogger().handlers[0].setFormatter(ColoredFormatter(
+                colorfmt,
+                datefmt=datefmt,
+                reset=True,
+                log_colors={
+                    'DEBUG': 'cyan',
+                    'INFO': 'green',
+                    'WARNING': 'yellow',
+                    'ERROR': 'red',
+                    'CRITICAL': 'red',
+                }
+            ))
+        except ImportError:
+            pass
+
+    # If the above initialization failed for any reason, setup the default
+    # formatting.  If the above succeeds, this wil result in a no-op.
+    logging.basicConfig(format=fmt, datefmt=datefmt, level=logging.INFO)
 
     # Suppress overly verbose logs from libraries that aren't helpful
     logging.getLogger('requests').setLevel(logging.WARNING)
     logging.getLogger('urllib3').setLevel(logging.WARNING)
     logging.getLogger('aiohttp.access').setLevel(logging.WARNING)
-
-    try:
-        from colorlog import ColoredFormatter
-        logging.getLogger().handlers[0].setFormatter(ColoredFormatter(
-            colorfmt,
-            datefmt=datefmt,
-            reset=True,
-            log_colors={
-                'DEBUG': 'cyan',
-                'INFO': 'green',
-                'WARNING': 'yellow',
-                'ERROR': 'red',
-                'CRITICAL': 'red',
-            }
-        ))
-    except ImportError:
-        pass
 
     # Log errors to a file if we have write access to file or config dir
     if log_file is None:
@@ -272,7 +285,8 @@ def async_enable_logging(hass: core.HomeAssistant, verbose: bool = False,
 
         if log_rotate_days:
             err_handler = logging.handlers.TimedRotatingFileHandler(
-                err_log_path, when='midnight', backupCount=log_rotate_days)
+                err_log_path, when='midnight',
+                backupCount=log_rotate_days)  # type: logging.FileHandler
         else:
             err_handler = logging.FileHandler(
                 err_log_path, mode='w', delay=True)
@@ -291,7 +305,7 @@ def async_enable_logging(hass: core.HomeAssistant, verbose: bool = False,
             EVENT_HOMEASSISTANT_CLOSE, async_stop_async_handler)
 
         logger = logging.getLogger('')
-        logger.addHandler(async_handler)
+        logger.addHandler(async_handler)  # type: ignore
         logger.setLevel(logging.INFO)
 
         # Save the log file location for access by other components.
@@ -311,7 +325,7 @@ def mount_local_lib_path(config_dir: str) -> str:
 
 
 async def async_mount_local_lib_path(config_dir: str,
-                               loop: TrioEventLoop) -> str:
+                                     loop: TrioEventLoop) -> str:
     """Add local library to Python Path.
 
     This function is a coroutine.

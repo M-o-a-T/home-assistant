@@ -47,9 +47,9 @@ async def _test_from_config_file():
 
 @patch('homeassistant.bootstrap.async_enable_logging', Mock())
 @patch('homeassistant.bootstrap.async_register_signal_handling', Mock())
-def test_home_assistant_core_config_validation():
-    trio_asyncio.run(_test_home_assistant_core_config_validation)
-async def _test_home_assistant_core_config_validation():
+def test_home_assistant_core_config_validation(hass):
+    trio_asyncio.run(_test_home_assistant_core_config_validation, hass)
+async def _test_home_assistant_core_config_validation(hass):
     """Test if we pass in wrong information for HA conf."""
     # Extensive HA conf validation testing is done
     hass = core.HomeAssistant()

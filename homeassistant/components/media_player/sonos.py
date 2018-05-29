@@ -67,7 +67,7 @@ ATTR_WITH_GROUP = 'with_group'
 ATTR_NIGHT_SOUND = 'night_sound'
 ATTR_SPEECH_ENHANCE = 'speech_enhance'
 
-ATTR_IS_COORDINATOR = 'is_coordinator'
+ATTR_SONOS_GROUP = 'sonos_group'
 
 UPNP_ERRORS_TO_IGNORE = ['701', '711']
 
@@ -340,6 +340,7 @@ class SonosDevice(MediaPlayerDevice):
         self._play_mode = None
         self._name = None
         self._coordinator = None
+        self._sonos_group = None
         self._status = None
         self._media_duration = None
         self._media_position = None
@@ -681,14 +682,25 @@ class SonosDevice(MediaPlayerDevice):
             if group:
                 # New group information is pushed
                 coordinator_uid, *slave_uids = group.split(',')
-            else:
+            elif self.soco.group:
                 # Use SoCo cache for existing topology
                 coordinator_uid = self.soco.group.coordinator.uid
                 slave_uids = [p.uid for p in self.soco.group.members
                               if p.uid != coordinator_uid]
+            else:
+                # Not yet in the cache, this can happen when a speaker boots
+                coordinator_uid = self.unique_id
+                slave_uids = []
 
             if self.unique_id == coordinator_uid:
+                sonos_group = []
+                for uid in (coordinator_uid, *slave_uids):
+                    entity = _get_entity_from_soco_uid(self.hass, uid)
+                    if entity:
+                        sonos_group.append(entity.entity_id)
+
                 self._coordinator = None
+                self._sonos_group = sonos_group
                 self.schedule_update_ha_state()
 
                 for slave_uid in slave_uids:
@@ -696,6 +708,7 @@ class SonosDevice(MediaPlayerDevice):
                     if slave:
                         # pylint: disable=protected-access
                         slave._coordinator = self
+                        slave._sonos_group = sonos_group
                         slave.schedule_update_ha_state()
 
     @property
@@ -1038,7 +1051,7 @@ class SonosDevice(MediaPlayerDevice):
     @property
     def device_state_attributes(self):
         """Return device specific state attributes."""
-        attributes = {ATTR_IS_COORDINATOR: self.is_coordinator}
+        attributes = {ATTR_SONOS_GROUP: self._sonos_group}
 
         if self._night_sound is not None:
             attributes[ATTR_NIGHT_SOUND] = self._night_sound
