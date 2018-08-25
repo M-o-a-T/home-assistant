@@ -1,8 +1,8 @@
 # coding: utf-8
 """Constants used by Home Assistant components."""
 MAJOR_VERSION = 0
-MINOR_VERSION = 70
-PATCH_VERSION = '0.dev0'
+MINOR_VERSION = 75
+PATCH_VERSION = '3'
 __short_version__ = '{}.{}'.format(MAJOR_VERSION, MINOR_VERSION)
 __version__ = '{}.{}'.format(__short_version__, PATCH_VERSION)
 REQUIRED_PYTHON_VER = (3, 5, 3)
@@ -224,9 +224,6 @@ ATTR_ID = 'id'
 # Name
 ATTR_NAME = 'name'
 
-# Data for a SERVICE_EXECUTED event
-ATTR_SERVICE_CALL_ID = 'service_call_id'
-
 # Contains one string or a list of strings, each being an entity id
 ATTR_ENTITY_ID = 'entity_id'
 
@@ -254,6 +251,7 @@ ATTR_DISCOVERED = 'discovered'
 # Location of the device/sensor
 ATTR_LOCATION = 'location'
 
+ATTR_BATTERY_CHARGING = 'battery_charging'
 ATTR_BATTERY_LEVEL = 'battery_level'
 ATTR_WAKEUP = 'wake_up_interval'
 

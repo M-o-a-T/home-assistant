@@ -91,7 +91,7 @@ async def test_setup_entry_successful(hass):
     """Test setup entry is successful."""
     entry = Mock()
     entry.data = {'host': '1.2.3.4', 'port': 80, 'api_key': '1234567890ABCDEF'}
-    with patch.object(hass, 'async_add_job') as mock_add_job, \
+    with patch.object(hass, 'async_create_task') as mock_add_job, \
         patch.object(hass, 'config_entries') as mock_config_entries, \
         patch('pydeconz.DeconzSession.async_load_parameters',
               return_value=mock_coro(True)):
@@ -172,3 +172,21 @@ async def test_add_new_remote(hass):
     async_dispatcher_send(hass, 'deconz_new_sensor', [remote])
     await hass.async_block_till_done()
     assert len(hass.data[deconz.DATA_DECONZ_EVENT]) == 1
+
+
+async def test_do_not_allow_clip_sensor(hass):
+    """Test that clip sensors can be ignored."""
+    entry = Mock()
+    entry.data = {'host': '1.2.3.4', 'port': 80,
+                  'api_key': '1234567890ABCDEF', 'allow_clip_sensor': False}
+    remote = Mock()
+    remote.name = 'name'
+    remote.type = 'CLIPSwitch'
+    remote.register_async_callback = Mock()
+    with patch('pydeconz.DeconzSession.async_load_parameters',
+               return_value=mock_coro(True)):
+        assert await deconz.async_setup_entry(hass, entry) is True
+
+    async_dispatcher_send(hass, 'deconz_new_sensor', [remote])
+    await hass.async_block_till_done()
+    assert len(hass.data[deconz.DATA_DECONZ_EVENT]) == 0

@@ -3,15 +3,16 @@ import logging
 
 import voluptuous as vol
 
-import homeassistant.components.media_player as media_player
+from homeassistant.components import media_player
 from homeassistant.core import split_entity_id
 from homeassistant.const import (
-    ATTR_CODE, ATTR_SUPPORTED_FEATURES, CONF_NAME, TEMP_CELSIUS)
+    ATTR_CODE, ATTR_SUPPORTED_FEATURES, CONF_NAME, CONF_TYPE, TEMP_CELSIUS)
 import homeassistant.helpers.config_validation as cv
 import homeassistant.util.temperature as temp_util
 from .const import (
     CONF_FEATURE, CONF_FEATURE_LIST, HOMEKIT_NOTIFY_ID, FEATURE_ON_OFF,
-    FEATURE_PLAY_PAUSE, FEATURE_PLAY_STOP, FEATURE_TOGGLE_MUTE)
+    FEATURE_PLAY_PAUSE, FEATURE_PLAY_STOP, FEATURE_TOGGLE_MUTE, TYPE_OUTLET,
+    TYPE_SWITCH)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,6 +34,11 @@ MEDIA_PLAYER_SCHEMA = vol.Schema({
     vol.Required(CONF_FEATURE): vol.All(
         cv.string, vol.In((FEATURE_ON_OFF, FEATURE_PLAY_PAUSE,
                            FEATURE_PLAY_STOP, FEATURE_TOGGLE_MUTE))),
+})
+
+SWITCH_TYPE_SCHEMA = BASIC_INFO_SCHEMA.extend({
+    vol.Optional(CONF_TYPE, default=TYPE_SWITCH): vol.All(
+        cv.string, vol.In((TYPE_OUTLET, TYPE_SWITCH))),
 })
 
 
@@ -61,6 +67,9 @@ def validate_entity_config(values):
                                       .format(entity))
                 feature_list[key] = params
             config[CONF_FEATURE_LIST] = feature_list
+
+        elif domain == 'switch':
+            config = SWITCH_TYPE_SCHEMA(config)
 
         else:
             config = BASIC_INFO_SCHEMA(config)
@@ -133,10 +142,10 @@ def density_to_air_quality(density):
     """Map PM2.5 density to HomeKit AirQuality level."""
     if density <= 35:
         return 1
-    elif density <= 75:
+    if density <= 75:
         return 2
-    elif density <= 115:
+    if density <= 115:
         return 3
-    elif density <= 150:
+    if density <= 150:
         return 4
     return 5

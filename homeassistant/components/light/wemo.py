@@ -8,7 +8,7 @@ import asyncio
 import logging
 from datetime import timedelta
 
-import homeassistant.util as util
+from homeassistant import util
 from homeassistant.components.light import (
     Light, ATTR_BRIGHTNESS, ATTR_COLOR_TEMP, ATTR_HS_COLOR, ATTR_TRANSITION,
     SUPPORT_BRIGHTNESS, SUPPORT_COLOR_TEMP, SUPPORT_COLOR, SUPPORT_TRANSITION)
@@ -27,7 +27,7 @@ SUPPORT_WEMO = (SUPPORT_BRIGHTNESS | SUPPORT_COLOR_TEMP | SUPPORT_COLOR |
 
 def setup_platform(hass, config, add_devices, discovery_info=None):
     """Set up discovered WeMo switches."""
-    import pywemo.discovery as discovery
+    from pywemo import discovery
 
     if discovery_info is not None:
         location = discovery_info['ssdp_description']
@@ -106,6 +106,11 @@ class WemoLight(Light):
     def supported_features(self):
         """Flag supported features."""
         return SUPPORT_WEMO
+
+    @property
+    def available(self):
+        """Return if light is available."""
+        return self.device.state['available']
 
     def turn_on(self, **kwargs):
         """Turn the light on."""

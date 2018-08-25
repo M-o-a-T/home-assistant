@@ -62,14 +62,16 @@ class TestLoader(unittest.TestCase):
         self.assertEqual([], loader.load_order_component(self.hass, 'mod1'))
 
 
-def test_component_loader(hass):
+@pytest.mark.trio
+async def test_component_loader(hass):
     """Test loading components."""
     components = loader.Components(hass)
     assert components.http.CONFIG_SCHEMA is http.CONFIG_SCHEMA
     assert hass.components.http.CONFIG_SCHEMA is http.CONFIG_SCHEMA
 
 
-def test_component_loader_non_existing(hass):
+@pytest.mark.trio
+async def test_component_loader_non_existing(hass):
     """Test loading components."""
     components = loader.Components(hass)
     with pytest.raises(ImportError):
@@ -124,3 +126,13 @@ async def test_custom_component_name(hass):
     # Test custom components is mounted
     from custom_components.test_package import TEST
     assert TEST == 5
+
+
+async def test_log_warning_custom_component(hass, caplog):
+    """Test that we log a warning when loading a custom component."""
+    loader.get_component(hass, 'test_standalone')
+    assert \
+        'You are using a custom component for test_standalone' in caplog.text
+
+    loader.get_component(hass, 'light.test')
+    assert 'You are using a custom component for light.test' in caplog.text

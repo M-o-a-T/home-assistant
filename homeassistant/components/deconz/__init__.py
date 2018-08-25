@@ -19,10 +19,10 @@ from homeassistant.util.json import load_json
 # Loading the config flow file will register the flow
 from .config_flow import configured_hosts
 from .const import (
-    CONFIG_FILE, DATA_DECONZ_EVENT, DATA_DECONZ_ID,
-    DATA_DECONZ_UNSUB, DOMAIN, _LOGGER)
+    CONF_ALLOW_CLIP_SENSOR, CONFIG_FILE, DATA_DECONZ_EVENT,
+    DATA_DECONZ_ID, DATA_DECONZ_UNSUB, DOMAIN, _LOGGER)
 
-REQUIREMENTS = ['pydeconz==38']
+REQUIREMENTS = ['pydeconz==42']
 
 CONFIG_SCHEMA = vol.Schema({
     DOMAIN: vol.Schema({
@@ -97,15 +97,17 @@ async def async_setup_entry(hass, config_entry):
     hass.data[DATA_DECONZ_UNSUB] = []
 
     for component in ['binary_sensor', 'light', 'scene', 'sensor']:
-        hass.async_add_job(hass.config_entries.async_forward_entry_setup(
+        hass.async_create_task(hass.config_entries.async_forward_entry_setup(
             config_entry, component))
 
     @callback
     def async_add_remote(sensors):
         """Setup remote from deCONZ."""
         from pydeconz.sensor import SWITCH as DECONZ_REMOTE
+        allow_clip_sensor = config_entry.data.get(CONF_ALLOW_CLIP_SENSOR, True)
         for sensor in sensors:
-            if sensor.type in DECONZ_REMOTE:
+            if sensor.type in DECONZ_REMOTE and \
+               not (not allow_clip_sensor and sensor.type.startswith('CLIP')):
                 hass.data[DATA_DECONZ_EVENT].append(DeconzEvent(hass, sensor))
     hass.data[DATA_DECONZ_UNSUB].append(
         async_dispatcher_connect(hass, 'deconz_new_sensor', async_add_remote))
@@ -176,7 +178,7 @@ async def async_unload_entry(hass, config_entry):
     return True
 
 
-class DeconzEvent(object):
+class DeconzEvent:
     """When you want signals instead of entities.
 
     Stateless sensors such as remotes are expected to generate an event

@@ -10,7 +10,7 @@ import subprocess
 import sys
 import threading
 
-from typing import Optional, List, Dict, Any  # noqa #pylint: disable=unused-import
+from typing import List, Dict, Any  # noqa pylint: disable=unused-import
 
 
 from homeassistant import monkey_patch
@@ -233,7 +233,7 @@ def cmdline() -> List[str]:
 
 async def setup_and_run_hass(config_dir: str,
                        args: argparse.Namespace,
-                       *, task_status=trio.TASK_STATUS_IGNORED) -> Optional[int]:
+                       *, task_status=trio.TASK_STATUS_IGNORED) -> int:
     """Set up HASS and run."""
     from homeassistant import bootstrap
 
@@ -267,13 +267,13 @@ async def setup_and_run_hass(config_dir: str,
 
     async with mgr as hass:
         if hass is None:
-            return None
+            return -1
 
         if args.open_ui:
             # Imported here to avoid importing asyncio before monkey patch
             from homeassistant.util.async_ import run_callback_threadsafe
 
-            def open_browser(event):
+            def open_browser(_: Any) -> None:
                 """Open the webinterface in a browser."""
                 if hass.config.api is not None:
                     import webbrowser

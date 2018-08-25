@@ -163,10 +163,10 @@ def test_zwave_ready_wait(hass, mock_openzwave):
     asyncio_sleep = asyncio.sleep
 
     @asyncio.coroutine
-    def sleep(duration, loop):
+    def sleep(duration, loop=None):
         if duration > 0:
             sleeps.append(duration)
-        yield from asyncio_sleep(0, loop=loop)
+        yield from asyncio_sleep(0)
 
     with patch('homeassistant.components.zwave.dt_util.utcnow', new=utcnow):
         with patch('asyncio.sleep', new=sleep):
@@ -238,7 +238,8 @@ async def test_unparsed_node_discovery(hass, mock_openzwave):
 
     assert len(mock_receivers) == 1
 
-    node = MockNode(node_id=14, manufacturer_name=None, is_ready=False)
+    node = MockNode(
+        node_id=14, manufacturer_name=None, name=None, is_ready=False)
 
     sleeps = []
 
@@ -247,10 +248,10 @@ async def test_unparsed_node_discovery(hass, mock_openzwave):
 
     asyncio_sleep = asyncio.sleep
 
-    async def sleep(duration, loop):
+    async def sleep(duration, loop=None):
         if duration > 0:
             sleeps.append(duration)
-        await asyncio_sleep(0, loop=loop)
+        await asyncio_sleep(0)
 
     with patch('homeassistant.components.zwave.dt_util.utcnow', new=utcnow):
         with patch('asyncio.sleep', new=sleep):
@@ -263,7 +264,7 @@ async def test_unparsed_node_discovery(hass, mock_openzwave):
                 assert len(mock_logger.warning.mock_calls) == 1
                 assert mock_logger.warning.mock_calls[0][1][1:] == \
                     (14, const.NODE_READY_WAIT_SECS)
-    assert hass.states.get('zwave.mock_node').state is 'unknown'
+    assert hass.states.get('zwave.unknown_node_14').state is 'unknown'
 
 
 @asyncio.coroutine

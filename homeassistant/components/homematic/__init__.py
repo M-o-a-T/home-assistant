@@ -20,7 +20,7 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity import Entity
 from homeassistant.loader import bind_hass
 
-REQUIREMENTS = ['pyhomematic==0.1.43']
+REQUIREMENTS = ['pyhomematic==0.1.46']
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -61,7 +61,8 @@ SERVICE_SET_INSTALL_MODE = 'set_install_mode'
 HM_DEVICE_TYPES = {
     DISCOVER_SWITCHES: [
         'Switch', 'SwitchPowermeter', 'IOSwitch', 'IPSwitch', 'RFSiren',
-        'IPSwitchPowermeter', 'HMWIOSwitch', 'Rain', 'EcoLogic'],
+        'IPSwitchPowermeter', 'HMWIOSwitch', 'Rain', 'EcoLogic',
+        'IPKeySwitchPowermeter'],
     DISCOVER_LIGHTS: ['Dimmer', 'KeyDimmer', 'IPKeyDimmer'],
     DISCOVER_SENSORS: [
         'SwitchPowermeter', 'Motion', 'MotionV2', 'RemoteMotion', 'MotionIP',
@@ -71,7 +72,8 @@ HM_DEVICE_TYPES = {
         'TemperatureSensor', 'CO2Sensor', 'IPSwitchPowermeter', 'HMWIOSwitch',
         'FillingLevel', 'ValveDrive', 'EcoLogic', 'IPThermostatWall',
         'IPSmoke', 'RFSiren', 'PresenceIP', 'IPAreaThermostat',
-        'IPWeatherSensor', 'RotaryHandleSensorIP'],
+        'IPWeatherSensor', 'RotaryHandleSensorIP', 'IPPassageSensor',
+        'IPKeySwitchPowermeter'],
     DISCOVER_CLIMATE: [
         'Thermostat', 'ThermostatWall', 'MAXThermostat', 'ThermostatWall2',
         'MAXWallThermostat', 'IPThermostat', 'IPThermostatWall',
@@ -80,7 +82,8 @@ HM_DEVICE_TYPES = {
         'ShutterContact', 'Smoke', 'SmokeV2', 'Motion', 'MotionV2',
         'MotionIP', 'RemoteMotion', 'WeatherSensor', 'TiltSensor',
         'IPShutterContact', 'HMWIOSwitch', 'MaxShutterContact', 'Rain',
-        'WiredSensor', 'PresenceIP', 'IPWeatherSensor'],
+        'WiredSensor', 'PresenceIP', 'IPWeatherSensor', 'IPPassageSensor',
+        'SmartwareMotion'],
     DISCOVER_COVER: ['Blind', 'KeyBlind', 'IPKeyBlind', 'IPKeyBlindTilt'],
     DISCOVER_LOCKS: ['KeyMatic']
 }
@@ -114,7 +117,7 @@ HM_ATTRIBUTE_SUPPORT = {
     'CURRENT': ['current', {}],
     'VOLTAGE': ['voltage', {}],
     'OPERATING_VOLTAGE': ['voltage', {}],
-    'WORKING': ['working', {0: 'No', 1: 'Yes'}],
+    'WORKING': ['working', {0: 'No', 1: 'Yes'}]
 }
 
 HM_PRESS_EVENTS = [
@@ -148,6 +151,7 @@ CONF_PATH = 'path'
 CONF_CALLBACK_IP = 'callback_ip'
 CONF_CALLBACK_PORT = 'callback_port'
 CONF_RESOLVENAMES = 'resolvenames'
+CONF_JSONPORT = 'jsonport'
 CONF_VARIABLES = 'variables'
 CONF_DEVICES = 'devices'
 CONF_PRIMARY = 'primary'
@@ -155,6 +159,7 @@ CONF_PRIMARY = 'primary'
 DEFAULT_LOCAL_IP = '0.0.0.0'
 DEFAULT_LOCAL_PORT = 0
 DEFAULT_RESOLVENAMES = False
+DEFAULT_JSONPORT = 80
 DEFAULT_PORT = 2001
 DEFAULT_PATH = ''
 DEFAULT_USERNAME = 'Admin'
@@ -178,6 +183,7 @@ CONFIG_SCHEMA = vol.Schema({
             vol.Optional(CONF_PATH, default=DEFAULT_PATH): cv.string,
             vol.Optional(CONF_RESOLVENAMES, default=DEFAULT_RESOLVENAMES):
                 vol.In(CONF_RESOLVENAMES_OPTIONS),
+            vol.Optional(CONF_JSONPORT, default=DEFAULT_JSONPORT): cv.port,
             vol.Optional(CONF_USERNAME, default=DEFAULT_USERNAME): cv.string,
             vol.Optional(CONF_PASSWORD, default=DEFAULT_PASSWORD): cv.string,
             vol.Optional(CONF_CALLBACK_IP): cv.string,
@@ -299,6 +305,7 @@ def setup(hass, config):
             'port': rconfig.get(CONF_PORT),
             'path': rconfig.get(CONF_PATH),
             'resolvenames': rconfig.get(CONF_RESOLVENAMES),
+            'jsonport': rconfig.get(CONF_JSONPORT),
             'username': rconfig.get(CONF_USERNAME),
             'password': rconfig.get(CONF_PASSWORD),
             'callbackip': rconfig.get(CONF_CALLBACK_IP),

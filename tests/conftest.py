@@ -1,4 +1,5 @@
 """Setup some common test helper things."""
+import trio
 import trio_asyncio
 import asyncio
 import functools
@@ -13,14 +14,13 @@ from homeassistant import util
 from homeassistant.util import location
 
 from tests.common import (
-    async_test_home_assistant, INSTANCES, async_mock_mqtt_component, mock_coro)
+    async_test_home_assistant, INSTANCES, async_mock_mqtt_component, mock_coro,
+    mock_storage as mock_storage)
 from tests.test_util.aiohttp import mock_aiohttp_client
 from tests.mock.zwave import MockNetwork, MockOption
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
-
-asyncio.set_event_loop_policy(trio_asyncio.TrioPolicy())
 
 def check_real(func):
     """Force a function to require a keyword _test_real to be passed in."""
@@ -49,6 +49,7 @@ def verify_cleanup():
     yield
 
     if len(INSTANCES) >= 2:
+        import pdb;pdb.set_trace()
         count = len(INSTANCES)
         for inst in INSTANCES:
             inst.stop()
@@ -57,13 +58,31 @@ def verify_cleanup():
 
 
 @pytest.fixture
-def hass(loop):
+def hass_storage():
+    """Fixture to mock storage."""
+    with mock_storage() as stored_data:
+        yield stored_data
+
+async def hold_loop(task_status=trio.TASK_STATUS_IGNORED):
+    async with trio_asyncio.open_loop() as loop:
+        task_status.started(loop)
+        # Do need to be prepared for an exception here... in this example it's fine, but in others it 
+        # might take some care
+        await trio.sleep(float("inf"))
+
+@pytest.fixture
+async def loop(nursery):
+    yield await nursery.start(hold_loop)
+
+@pytest.fixture
+async def hass(loop, hass_storage):
     """Fixture to provide a test instance of HASS."""
-    hass = loop.run_until_complete(async_test_home_assistant(loop))
+    hass = await loop.run_asyncio(async_test_home_assistant, loop)
 
     yield hass
 
-    loop.run_until_complete(hass.async_stop())
+    await loop.run_asyncio(hass.async_stop)
+    loop._nursery.cancel_scope.cancel()
 
 
 @pytest.fixture
