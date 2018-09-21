@@ -244,17 +244,6 @@ async def setup_and_run_hass(config_dir: str,
     """Set up HASS and run."""
     from homeassistant import bootstrap, core
 
-    # Run a simple daemon runner process on Windows to handle restarts
-    if os.name == 'nt' and '--runner' not in sys.argv:
-        nt_args = cmdline() + ['--runner']
-        while True:
-            try:
-                subprocess.check_call(nt_args)
-                sys.exit(0)
-            except subprocess.CalledProcessError as exc:
-                if exc.returncode != RESTART_EXIT_CODE:
-                    sys.exit(exc.returncode)
-
     hass = core.HomeAssistant()
 
     if args.demo_mode:
@@ -338,6 +327,17 @@ def try_to_restart() -> None:
 def main() -> int:
     """Start Home Assistant."""
     validate_python()
+
+    # Run a simple daemon runner process on Windows to handle restarts
+    if os.name == 'nt' and '--runner' not in sys.argv:
+        nt_args = cmdline() + ['--runner']
+        while True:
+            try:
+                subprocess.check_call(nt_args)
+                sys.exit(0)
+            except subprocess.CalledProcessError as exc:
+                if exc.returncode != RESTART_EXIT_CODE:
+                    sys.exit(exc.returncode)
 
     monkey_patch_needed = sys.version_info[:3] < (3, 6, 3)
     if monkey_patch_needed and os.environ.get('HASS_NO_MONKEY') != '1':
