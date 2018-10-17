@@ -120,7 +120,7 @@ def load_platform(hass, component, platform, discovered=None,
 
     Target components will be loaded and an EVENT_PLATFORM_DISCOVERED will be
     fired to load the platform. The event will contain:
-        { ATTR_SERVICE = LOAD_PLATFORM + '.' + <<component>>
+        { ATTR_SERVICE = EVENT_LOAD_PLATFORM + '.' + <<component>>
           ATTR_PLATFORM = <<platform>>
           ATTR_DISCOVERED = <<discovery info>> }
 
@@ -138,7 +138,7 @@ async def async_load_platform(hass, component, platform, discovered=None,
 
     Target components will be loaded and an EVENT_PLATFORM_DISCOVERED will be
     fired to load the platform. The event will contain:
-        { ATTR_SERVICE = LOAD_PLATFORM + '.' + <<component>>
+        { ATTR_SERVICE = EVENT_LOAD_PLATFORM + '.' + <<component>>
           ATTR_PLATFORM = <<platform>>
           ATTR_DISCOVERED = <<discovery info>> }
 
