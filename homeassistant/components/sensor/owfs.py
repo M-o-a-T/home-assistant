@@ -8,7 +8,7 @@ https://home-assistant.io/components/sensor.owfs/
 from datetime import timedelta
 
 from homeassistant.components.owfs import (OWFSDevice, init_devices,
-                                           DEVICE_SCHEMA)
+                                           DEVICE_SCHEMA, SubDevice_)
 from homeassistant.components.sensor import PLATFORM_SCHEMA
 
 DEPENDENCIES = ['owfs']
@@ -30,7 +30,7 @@ async def async_setup_platform(hass,
 
 
 class TemperatureSensor(OWFSDevice):
-    """Representation of an OWFS temperature sensor."""
+    """Representation of an OWFS DS18b20 temperature sensor."""
 
     _attr = "temperature"
     temperature = None
@@ -47,25 +47,59 @@ class TemperatureSensor(OWFSDevice):
         if isinstance(event, DeviceValue) and \
                 event.attribute in {'temperature', 'latesttemp'}:
             self.temperature = event.value
+            self.async_schedule_update_ha_state()
 
         await super().process_event(event)
-
-    @property
-    def state(self):
-        """Return the state of the sensor."""
-        return self.temperature
 
     @property
     def unit_of_measurement(self):
         """Return the unit this state is expressed in."""
         return "°C"
 
-    @property
-    def device_state_attributes(self):
-        """Return the state attributes."""
-        return None  # XXX
 
+class VoltageSensor(OWFSDevice):
+    """Representation of an OWFS DS2450 A/D converter.
+
+    This sensor is a proxy for reading all voltages
+    via simultaneous conversion.
+    """
+
+    _attr = "voltage"
+    voltages = None
+
+    async def _init(self, without_config: bool):
+        """Async part of device initialization."""
+        await super()._init(without_config)
+        if without_config:
+            await self.dev.set_polling_interval("voltage", 30)
+
+    async def process_event(self, event):
+        from trio_owfs.event import DeviceValue
+
+        if isinstance(event, DeviceValue) and \
+                event.attribute == "volt_all":
+            self.voltage = event.value
+
+            devs = self.dev._OWFSDevice__objects
+            for i in range(4):
+                subdev = devs.get('volt_'+str(i), None)
+                if subdev is not None:
+                    await subdev.polled_value(self.voltage[i])
+        await super().process_event(event)
+
+    @property
+    def unit_of_measurement(self):
+        """Return the unit this state is expressed in."""
+        return "°C"
+
+    @classmethod
+    def cls_for(cls, attr):
+        if attr in {'volt.0','volt.1','volt.2','volt.3'}:
+            return SubDevice_("Voltage_"+attr[-1], attr)
+        return super(cls).cls_for(attr)
 
 CLASSES = {
     0x10: TemperatureSensor,
+    0x20: VoltageSensor
 }
+

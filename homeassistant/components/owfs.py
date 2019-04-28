@@ -17,7 +17,9 @@ except ImportError:
 import voluptuous as vol
 
 from homeassistant.const import (CONF_NAME, CONF_HOST, CONF_PORT,
-                                 EVENT_HOMEASSISTANT_STOP)
+                                 EVENT_HOMEASSISTANT_STOP,
+                                 STATE_OK, STATE_UNAVAILABLE,
+                                 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import discovery
 from homeassistant.helpers.entity import Entity
@@ -50,6 +52,8 @@ SERVICE_OWFS_VALUE = "value"
 SERVICE_OWFS_RESULTS = "results"
 
 ATTR_DEVICES = 'devices'
+ATTR_BUS = 'owfs_bus'
+ATTR_SERVER = 'owfs_server'
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -100,23 +104,25 @@ def owfs_address(value):
 KNOWN_POLL_ITEMS = {'alarm', 'temperature', 'voltage', 'attr'}
 
 DEVICE_SCHEMA = vol.Schema({
-    vol.Required(CONF_ADDRESS):
-    owfs_address,
-    vol.Optional(CONF_NAME, default=DEFAULT_NAME):
-    cv.string,
-    vol.Optional(CONF_ATTRIBUTE):
-    cv.string,
+    vol.Required(CONF_ADDRESS): owfs_address,
+    vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
+    vol.Optional(CONF_ATTRIBUTE): cv.string,
     vol.Optional(CONF_POLL):
-    vol.Schema(
-        dict((vol.Optional(k), cv.positive_int) for k in KNOWN_POLL_ITEMS)),
+        vol.Schema(
+            dict((vol.Optional(k), cv.positive_int) for k in KNOWN_POLL_ITEMS)),
 })
 
 # CLASSES in ha.<PLATFORM>.owfs points to the actual classes to be
-# used. These use the default attribute and thus must not set '_attr'.
+# used. The default for unknown devices is "sensor".
+DEFAULT_PLATFORM='sensor'
 CODEMAP = {  # family -> default platform
-    0x10: 'sensor',
-    0x1F: None,  # Buses are handled transparently
-    0x81: None,  # ID chips are skipped
+    0x05: 'binary_sensor', # DS2405 single switch/input
+    0x10: 'sensor', # DS18S20 thermometer
+    0x12: False, # DS2406 dual switch, no default attribute
+    0x1F: None,  # DS2409 multiplexer; Buses are handled transparently
+    0x20: 'sensor', # DS2450 4-channel ADC
+    0x28: 'sensor', # DS18B20 thermometer
+    0x81: None,  # DS2401 ID chips are skipped
 }
 
 
@@ -131,6 +137,8 @@ async def async_setup(hass, config):
         hass.components.persistent_notification.async_create(
             "Can't connect to OWFS interface: {0!r}".format(ex), title="OWFS")
         return False
+
+    mod.hass_config = config
 
     hass.services.async_register(
         DOMAIN,
@@ -155,16 +163,10 @@ async def init_devices(hass, domain, config, discovery_info,
 
     if config:
         assert not discovery_info, discovery_info
-        dev = mod.service.get_device(config[CONF_ADDRESS])
+        dev = await mod.service.get_device(config[CONF_ADDRESS])
 
         attr = config.get(CONF_ATTRIBUTE)
-        if attr is not None:
-            cls = UnknownDevice
-        else:
-            try:
-                cls = classes[dev.family]
-            except KeyError:
-                cls = UnknownDevice
+        cls = classes.get(dev.family, UnknownDevice).cls_for(attr)
 
         obj = cls(hass, dev, config=config)
         await obj._init(False)
@@ -188,10 +190,7 @@ async def init_devices(hass, domain, config, discovery_info,
             else:
                 continue
 
-            try:
-                cls = classes[dev.family]
-            except KeyError:
-                cls = UnknownDevice
+            cls = classes.get(dev.family, UnknownDevice)
             obj = cls(hass, dev)
             await obj._init(True)
             objs.append(obj)
@@ -202,16 +201,21 @@ async def init_devices(hass, domain, config, discovery_info,
 class OWFSDevice(Entity):
     """Representation of (an attribute of an) OWFS device"""
     _attr = None
+    # if the attribute is indexed, _attr_base is the name without the .N
+    # index and _attr_idx contains the (numeric) index.
+    _attr_base = None
+    _attr_idx = None
+
     _val = None
     _do_poll = 0
     _next_poll = 0
     _events = None  # list: remembered events
 
     def __init__(self, hass: HomeAssistant, dev: "trio_owfs.device.Device",
-                 config: dict = {}):
+                 config: dict = {}, _attr = None):
         self.hass = hass
         self.dev = dev
-        self._events = None
+        self._events = []
 
         name = config.get(CONF_NAME)
         if name is None:
@@ -219,16 +223,33 @@ class OWFSDevice(Entity):
         self._name = name
         self._config = config
 
+        dev = self.dev
         # save a ref to this device
         try:
             reg = dev.__objects
         except AttributeError:
             dev.__objects = reg = WeakValueDictionary()
-        attr = config.get(CONF_ATTRIBUTE)
+            for evt in dev.queued_events:
+                self._events.append(evt)
+
+        attr = self._attr
+        if attr is None:
+            attr = self._config.get(CONF_ATTRIBUTE)
         if attr is None:
             attr = "_default"
         else:
+            attr_base = attr
+            i = attr.rfind('.')
+            if i > 0:
+                try:
+                    idx = int(attr[i+1:])
+                except ValueError:
+                    pass
+                else:
+                    attr_base = attr[:i]
+                    self._attr_idx = idx
             self._attr = attr
+            self._attr_base = attr_base
         reg[attr] = self
 
     async def _init(self, without_config: bool):
@@ -236,18 +257,26 @@ class OWFSDevice(Entity):
         This code processes queued events and ensures that no more events
         may be queued."""
         events, self._events = self._events, None
-        for e in events:
-            await self.process_event(e)
+        for evt in events:
+            await self.process_event(evt)
 
     @property
     def name(self):
         return self._name
 
     @property
+    def state(self):
+        if self.dev.bus is None:
+            return STATE_UNAVAILABLE
+        return STATE_OK
+
+    @property
     def should_poll(self):
         """overrides this Entity property.
         OWFS doesn't require polling by HASS.
         """
+
+        _LOGGER.debug("PollTest %s",self)
         if not self._do_poll:
             return False
         t = time()
@@ -284,8 +313,19 @@ class OWFSDevice(Entity):
 
         If the event is an alarm, trigger a message.
         """
-        from trio_owfs.event import DeviceAlarm, DeviceValue
+        if self._events is not None:
+            # not finished setting up. Queue fo later.
+            self._events.append(evt)
+            return
 
+        from trio_owfs.event import DeviceAlarm, DeviceValue,DeviceLocated,DeviceNotFound
+
+        if isinstance(evt, DeviceLocated):
+            if self.entity_id is not None:
+                await self.async_update_ha_state()
+        elif isinstance(evt, DeviceNotFound):
+            if self.entity_id is not None:
+                await self.async_update_ha_state()
         if isinstance(evt, DeviceAlarm):
             self.hass.bus.async_fire(
                 EVENT_OWFS_ALARM, {
@@ -293,18 +333,40 @@ class OWFSDevice(Entity):
                     SERVICE_OWFS_RESULTS: evt.device.results,
                 })
         elif isinstance(evt, DeviceValue):
-            if self._attr is not None and evt.attribute == self._attr:
-                await self.async_update_ha_state()
-                self._val = evt.value
+            if self._attr is not None:
+                attr = self._attr
+                if evt.attribute == attr:
+                    await self.async_update_ha_state()
+                    self._val = evt.value
 
     async def async_update(self):
         if self.dev.bus is None:
             return
-        self._val = await self.dev.attr_get(*self._attr.split('/'))
+        if self._attr is None:
+            return
+        if self.attr_idx is not None:
+            self._val = await self.dev.attr_get(*self._attr_base.split('/'))[self.attr_idx]
+        else:
+            self._val = await self.dev.attr_get(*self._attr.split('/'))
 
     @property
     def state(self):
         return self._val
+
+    @property
+    def state_attributes(self):
+        res = {}
+        bus = self.dev.bus
+        if bus is not None:
+            res[ATTR_SERVER] = (bus.server.host,bus.server.port)
+            res[ATTR_BUS] = bus.path
+        return res
+
+    @classmethod
+    def cls_for(cls, attr):
+        if attr is None:
+            return cls
+        return UnknownDevice
 
 
 class UnknownDevice(OWFSDevice, Entity):
@@ -312,6 +374,26 @@ class UnknownDevice(OWFSDevice, Entity):
     It is only used for devices that are configured explicitly.
     """
     _do_poll = 300
+
+
+class SubDevice(OWFSDevice):
+    """A sensor that's fed by a poll routine from another sensor.
+    Use this e.g. for individual volt_* fields for 4-channel ADCs.
+    """
+    def polled_value(self, value):
+        self._val = value
+        self.async_schedule_update_ha_state()
+
+
+def SubDevice_(name, attr, mixin=None):
+    if mixin is None:
+        supra = (SubDevice,)
+    else:
+        supra = (mixin,SubDevice)
+    class sens(*supra):
+        _attr = attr
+    sens.__name__ = name
+    return sens
 
 
 class OWFSModule:
@@ -331,8 +413,12 @@ class OWFSModule:
                 evt_start.set()
                 await self.evt_stop.wait()
         except Exception as exc:
-            self.service = exc
-            evt_start.set()
+            if evt_start.is_set():
+                _LOGGER.exception("OWFS subsystem")
+                raise
+            else:
+                self.service = exc
+                evt_start.set()
 
     async def _owfs_loop(self):
         """Listen for OWFS events"""
@@ -340,7 +426,7 @@ class OWFSModule:
             ServerDeregistered, DeviceEvent, DeviceValue
 
         n_servers = 0
-        with self.service.events as eq:
+        async with self.service.events as eq:
             async for evt in eq:
                 try:
                     _LOGGER.debug("E: {}".format(evt))
@@ -378,19 +464,15 @@ class OWFSModule:
                     _LOGGER.exception("While processing %s", repr(evt))
 
     async def auto_device(self, dev: "trio_owfs.device.Device"):
-        t = CODEMAP.get(dev.family, False)
+        t = CODEMAP.get(dev.family, DEFAULT_PLATFORM)
         if t is None:
             _LOGGER.info("Ignored device: %s", repr(dev))
             return
         elif t is False:
             _LOGGER.warning("Device not handled: %s", repr(dev))
-        await discovery.async_load_platform(
-            self.hass,
-            t,
-            DOMAIN,
-            {ATTR_DEVICES: [dev]},
-            None,
-        )
+        else:
+            await discovery.async_load_platform(
+                self.hass, t, DOMAIN, {ATTR_DEVICES: [dev]}, self.config)
 
     async def start(self):
         """Start OWFS service. Connect to servers."""
@@ -412,7 +494,7 @@ class OWFSModule:
     async def start_done(self):
         """Actually start the server connections, and poll"""
         for s in self.config[DOMAIN][CONF_OWFS_SERVER]:
-            sd = {'host': s[CONF_HOST]}
+            sd = {'host': s[CONF_HOST], 'background': True}
             if 'CONF_PORT' in s:
                 sd['port'] = s[CONF_PORT]
             if 'CONF_POLL' in s:
@@ -432,7 +514,7 @@ class OWFSModule:
 
     async def service_set_owfs_value(self, call):
         """Service for setting an arbitrary OWFS device's attribute."""
-        dev = self.service.get_device(call.data[SERVICE_OWFS_ADDRESS])
+        dev = await self.service.get_device(call.data[SERVICE_OWFS_ADDRESS])
         if dev.bus is None:
             _LOGGER.warning("{} is not available".format(dev))
             return
@@ -448,7 +530,7 @@ class OWFSModule:
 
     async def service_get_owfs_value(self, call):
         """Service for reading an arbitrary OWFS device's attribute"""
-        dev = self.service.get_device(call.data[SERVICE_OWFS_ADDRESS])
+        dev = await self.service.get_device(call.data[SERVICE_OWFS_ADDRESS])
         if dev.bus is None:
             _LOGGER.warning("{} is not available".format(dev))
             return
