@@ -132,8 +132,6 @@ class AmcrestChecker(Http):
                 offline = not self.available
             if offline and was_online:
                 _LOGGER.error("%s camera offline: Too many errors", self._wrap_name)
-                with self._token_lock:
-                    self._token = None
                 dispatcher_send(
                     self._hass, service_signal(SERVICE_UPDATE, self._wrap_name)
                 )
@@ -258,7 +256,7 @@ def setup(hass, config):
             async_dispatcher_send(hass, service_signal(call.service, entity_id), *args)
 
     for service, params in CAMERA_SERVICES.items():
-        hass.services.async_register(DOMAIN, service, async_service_handler, params[0])
+        hass.services.register(DOMAIN, service, async_service_handler, params[0])
 
     return True
 

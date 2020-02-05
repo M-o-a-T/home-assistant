@@ -36,6 +36,7 @@ BRIDGE_CONFIG_SCHEMA = vol.Schema(
         vol.Optional(
             CONF_ALLOW_HUE_GROUPS, default=DEFAULT_ALLOW_HUE_GROUPS
         ): cv.boolean,
+        vol.Optional("filename"): str,
     }
 )
 
@@ -44,7 +45,13 @@ CONFIG_SCHEMA = vol.Schema(
         DOMAIN: vol.Schema(
             {
                 vol.Optional(CONF_BRIDGES): vol.All(
-                    cv.ensure_list, [BRIDGE_CONFIG_SCHEMA]
+                    cv.ensure_list,
+                    [
+                        vol.All(
+                            cv.deprecated("filename", invalidation_version="0.106.0"),
+                            BRIDGE_CONFIG_SCHEMA,
+                        ),
+                    ],
                 )
             }
         )
@@ -69,7 +76,7 @@ async def async_setup(hass, config):
     bridges = conf[CONF_BRIDGES]
 
     configured_hosts = set(
-        entry.data["host"] for entry in hass.config_entries.async_entries(DOMAIN)
+        entry.data.get("host") for entry in hass.config_entries.async_entries(DOMAIN)
     )
 
     for bridge_conf in bridges:
@@ -115,7 +122,7 @@ async def async_setup_entry(
     if not await bridge.async_setup():
         return False
 
-    hass.data[DOMAIN][host] = bridge
+    hass.data[DOMAIN][entry.entry_id] = bridge
     config = bridge.api.config
 
     # For backwards compat
@@ -136,9 +143,7 @@ async def async_setup_entry(
     )
 
     if config.swupdate2_bridge_state == "readytoinstall":
-        err = (
-            "Please check for software updates of the bridge " "in the Philips Hue App."
-        )
+        err = "Please check for software updates of the bridge in the Philips Hue App."
         _LOGGER.warning(err)
 
     return True
@@ -146,5 +151,5 @@ async def async_setup_entry(
 
 async def async_unload_entry(hass, entry):
     """Unload a config entry."""
-    bridge = hass.data[DOMAIN].pop(entry.data["host"])
+    bridge = hass.data[DOMAIN].pop(entry.entry_id)
     return await bridge.async_reset()

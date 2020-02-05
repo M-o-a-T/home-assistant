@@ -30,6 +30,7 @@ from .const import (
     HOMEGRAPH_TOKEN_URL,
     REPORT_STATE_BASE_URL,
     REQUEST_SYNC_BASE_URL,
+    SOURCE_CLOUD,
 )
 from .helpers import AbstractConfig
 from .smart_home import async_handle_message
@@ -120,6 +121,10 @@ class GoogleConfig(AbstractConfig):
         is_default_exposed = domain_exposed_by_default and explicit_expose is not False
 
         return is_default_exposed or explicit_expose
+
+    def get_agent_user_id(self, context):
+        """Get agent user ID making request."""
+        return context.user_id
 
     def should_2fa(self, state):
         """If an entity should have 2FA checked."""
@@ -234,6 +239,10 @@ class GoogleAssistantView(HomeAssistantView):
         """Handle Google Assistant requests."""
         message: dict = await request.json()
         result = await async_handle_message(
-            request.app["hass"], self.config, request["hass_user"].id, message
+            request.app["hass"],
+            self.config,
+            request["hass_user"].id,
+            message,
+            SOURCE_CLOUD,
         )
         return self.json(result)
