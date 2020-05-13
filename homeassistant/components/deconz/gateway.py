@@ -19,8 +19,9 @@ from .const import (
     DEFAULT_ALLOW_DECONZ_GROUPS,
     DOMAIN,
     LOGGER,
-    NEW_DEVICE,
     NEW_GROUP,
+    NEW_LIGHT,
+    NEW_SCENE,
     NEW_SENSOR,
     SUPPORTED_PLATFORMS,
 )
@@ -30,7 +31,7 @@ from .errors import AuthenticationRequired, CannotConnect
 @callback
 def get_gateway_from_config_entry(hass, config_entry):
     """Return gateway with a matching bridge id."""
-    return hass.data[DOMAIN][config_entry.unique_id]
+    return hass.data[DOMAIN].get(config_entry.unique_id)
 
 
 class DeconzGateway:
@@ -125,6 +126,8 @@ class DeconzGateway:
         Causes for this is either discovery updating host address or config entry options changing.
         """
         gateway = get_gateway_from_config_entry(hass, entry)
+        if not gateway:
+            return
         if gateway.api.host != entry.data[CONF_HOST]:
             gateway.api.close()
             gateway.api.host = entry.data[CONF_HOST]
@@ -186,7 +189,13 @@ class DeconzGateway:
     @callback
     def async_signal_new_device(self, device_type) -> str:
         """Gateway specific event to signal new device."""
-        return NEW_DEVICE[device_type].format(self.bridgeid)
+        new_device = {
+            NEW_GROUP: f"deconz_new_group_{self.bridgeid}",
+            NEW_LIGHT: f"deconz_new_light_{self.bridgeid}",
+            NEW_SCENE: f"deconz_new_scene_{self.bridgeid}",
+            NEW_SENSOR: f"deconz_new_sensor_{self.bridgeid}",
+        }
+        return new_device[device_type]
 
     @property
     def signal_remove_entity(self) -> str:

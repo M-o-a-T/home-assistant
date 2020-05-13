@@ -19,7 +19,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import service
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.translation import async_get_translations
-from homeassistant.loader import bind_hass
+from homeassistant.loader import async_get_integration, bind_hass
 
 from .storage import async_setup_frontend_storage
 
@@ -50,8 +50,8 @@ MANIFEST_JSON = {
     "display": "standalone",
     "icons": [
         {
-            "src": "/static/icons/favicon-{size}x{size}.png".format(size=size),
-            "sizes": "{size}x{size}".format(size=size),
+            "src": f"/static/icons/favicon-{size}x{size}.png",
+            "sizes": f"{size}x{size}",
             "type": "image/png",
             "purpose": "maskable any",
         }
@@ -171,6 +171,8 @@ def async_register_built_in_panel(
     frontend_url_path=None,
     config=None,
     require_admin=False,
+    *,
+    update=False,
 ):
     """Register a built-in panel."""
     panel = Panel(
@@ -184,8 +186,8 @@ def async_register_built_in_panel(
 
     panels = hass.data.setdefault(DATA_PANELS, {})
 
-    if panel.frontend_url_path in panels:
-        _LOGGER.warning("Overwriting integration %s", panel.frontend_url_path)
+    if not update and panel.frontend_url_path in panels:
+        raise ValueError(f"Overwriting panel {panel.frontend_url_path}")
 
     panels[panel.frontend_url_path] = panel
 
@@ -246,6 +248,7 @@ async def async_setup(hass, config):
     hass.components.websocket_api.async_register_command(websocket_get_panels)
     hass.components.websocket_api.async_register_command(websocket_get_themes)
     hass.components.websocket_api.async_register_command(websocket_get_translations)
+    hass.components.websocket_api.async_register_command(websocket_get_version)
     hass.http.register_view(ManifestJSONView)
 
     conf = config.get(DOMAIN, {})
@@ -274,8 +277,7 @@ async def async_setup(hass, config):
 
     hass.http.app.router.register_resource(IndexView(repo_path, hass))
 
-    for panel in ("kiosk", "states", "profile"):
-        async_register_built_in_panel(hass, panel)
+    async_register_built_in_panel(hass, "profile")
 
     # To smooth transition to new urls, add redirects to new urls of dev tools
     # Added June 27, 2019. Can be removed in 2021.
@@ -420,11 +422,9 @@ class IndexView(web_urldispatcher.AbstractResource):
 
     def freeze(self) -> None:
         """Freeze the resource."""
-        pass
 
     def raw_match(self, path: str) -> bool:
         """Perform a raw match against path."""
-        pass
 
     def get_template(self):
         """Get template."""
@@ -487,10 +487,7 @@ class ManifestJSONView(HomeAssistantView):
 @callback
 @websocket_api.websocket_command({"type": "get_panels"})
 def websocket_get_panels(hass, connection, msg):
-    """Handle get panels command.
-
-    Async friendly.
-    """
+    """Handle get panels command."""
     user_is_admin = connection.user.is_admin
     panels = {
         panel_key: panel.to_response()
@@ -504,10 +501,7 @@ def websocket_get_panels(hass, connection, msg):
 @callback
 @websocket_api.websocket_command({"type": "frontend/get_themes"})
 def websocket_get_themes(hass, connection, msg):
-    """Handle get themes command.
-
-    Async friendly.
-    """
+    """Handle get themes command."""
     if hass.config.safe_mode:
         connection.send_message(
             websocket_api.result_message(
@@ -537,15 +531,42 @@ def websocket_get_themes(hass, connection, msg):
 
 
 @websocket_api.websocket_command(
-    {"type": "frontend/get_translations", vol.Required("language"): str}
+    {
+        "type": "frontend/get_translations",
+        vol.Required("language"): str,
+        vol.Required("category"): str,
+        vol.Optional("integration"): str,
+        vol.Optional("config_flow"): bool,
+    }
 )
 @websocket_api.async_response
 async def websocket_get_translations(hass, connection, msg):
-    """Handle get translations command.
-
-    Async friendly.
-    """
-    resources = await async_get_translations(hass, msg["language"])
+    """Handle get translations command."""
+    resources = await async_get_translations(
+        hass,
+        msg["language"],
+        msg["category"],
+        msg.get("integration"),
+        msg.get("config_flow"),
+    )
     connection.send_message(
         websocket_api.result_message(msg["id"], {"resources": resources})
     )
+
+
+@websocket_api.websocket_command({"type": "frontend/get_version"})
+@websocket_api.async_response
+async def websocket_get_version(hass, connection, msg):
+    """Handle get version command."""
+    integration = await async_get_integration(hass, "frontend")
+
+    frontend = None
+
+    for req in integration.requirements:
+        if req.startswith("home-assistant-frontend=="):
+            frontend = req.split("==", 1)[1]
+
+    if frontend is None:
+        connection.send_error(msg["id"], "unknown_version", "Version not found")
+    else:
+        connection.send_result(msg["id"], {"version": frontend})

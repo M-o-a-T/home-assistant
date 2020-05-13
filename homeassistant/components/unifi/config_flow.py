@@ -16,19 +16,28 @@ import homeassistant.helpers.config_validation as cv
 
 from .const import (
     CONF_ALLOW_BANDWIDTH_SENSORS,
+    CONF_BLOCK_CLIENT,
     CONF_CONTROLLER,
     CONF_DETECTION_TIME,
+    CONF_IGNORE_WIRED_BUG,
+    CONF_POE_CLIENTS,
     CONF_SITE_ID,
     CONF_SSID_FILTER,
     CONF_TRACK_CLIENTS,
     CONF_TRACK_DEVICES,
     CONF_TRACK_WIRED_CLIENTS,
     CONTROLLER_ID,
+    DEFAULT_POE_CLIENTS,
     DOMAIN,
     LOGGER,
 )
 from .controller import get_controller
-from .errors import AlreadyConfigured, AuthenticationRequired, CannotConnect
+from .errors import (
+    AlreadyConfigured,
+    AuthenticationRequired,
+    CannotConnect,
+    NoLocalUser,
+)
 
 DEFAULT_PORT = 8443
 DEFAULT_SITE_ID = "default"
@@ -131,6 +140,8 @@ class UnifiFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
                 for site in self.sites.values():
                     if desc == site["desc"]:
+                        if "role" not in site:
+                            raise NoLocalUser
                         self.config[CONF_SITE_ID] = site["name"]
                         break
 
@@ -148,6 +159,9 @@ class UnifiFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
             except AlreadyConfigured:
                 return self.async_abort(reason="already_configured")
+
+            except NoLocalUser:
+                return self.async_abort(reason="no_local_user")
 
         if len(self.sites) == 1:
             self.desc = next(iter(self.sites.values()))["desc"]
@@ -171,44 +185,97 @@ class UnifiOptionsFlowHandler(config_entries.OptionsFlow):
         """Initialize UniFi options flow."""
         self.config_entry = config_entry
         self.options = dict(config_entry.options)
+        self.controller = None
 
     async def async_step_init(self, user_input=None):
         """Manage the UniFi options."""
+        self.controller = get_controller_from_config_entry(self.hass, self.config_entry)
+        self.options[CONF_BLOCK_CLIENT] = self.controller.option_block_clients
         return await self.async_step_device_tracker()
 
     async def async_step_device_tracker(self, user_input=None):
         """Manage the device tracker options."""
         if user_input is not None:
             self.options.update(user_input)
-            return await self.async_step_statistics_sensors()
+            return await self.async_step_client_control()
 
-        controller = get_controller_from_config_entry(self.hass, self.config_entry)
-
-        ssid_filter = {wlan: wlan for wlan in controller.api.wlans}
+        ssids = (
+            set(self.controller.api.wlans)
+            | {
+                f"{wlan.name}{wlan.name_combine_suffix}"
+                for wlan in self.controller.api.wlans.values()
+                if not wlan.name_combine_enabled
+            }
+            | {
+                wlan["name"]
+                for ap in self.controller.api.devices.values()
+                for wlan in ap.raw.get("wlan_overrides", [])
+            }
+        )
+        ssid_filter = {ssid: ssid for ssid in sorted(list(ssids))}
 
         return self.async_show_form(
             step_id="device_tracker",
             data_schema=vol.Schema(
                 {
                     vol.Optional(
-                        CONF_TRACK_CLIENTS, default=controller.option_track_clients,
+                        CONF_TRACK_CLIENTS,
+                        default=self.controller.option_track_clients,
                     ): bool,
                     vol.Optional(
                         CONF_TRACK_WIRED_CLIENTS,
-                        default=controller.option_track_wired_clients,
+                        default=self.controller.option_track_wired_clients,
                     ): bool,
                     vol.Optional(
-                        CONF_TRACK_DEVICES, default=controller.option_track_devices,
+                        CONF_TRACK_DEVICES,
+                        default=self.controller.option_track_devices,
                     ): bool,
                     vol.Optional(
-                        CONF_SSID_FILTER, default=controller.option_ssid_filter
+                        CONF_SSID_FILTER, default=self.controller.option_ssid_filter
                     ): cv.multi_select(ssid_filter),
                     vol.Optional(
                         CONF_DETECTION_TIME,
-                        default=int(controller.option_detection_time.total_seconds()),
+                        default=int(
+                            self.controller.option_detection_time.total_seconds()
+                        ),
                     ): int,
+                    vol.Optional(
+                        CONF_IGNORE_WIRED_BUG,
+                        default=self.controller.option_ignore_wired_bug,
+                    ): bool,
                 }
             ),
+        )
+
+    async def async_step_client_control(self, user_input=None):
+        """Manage configuration of network access controlled clients."""
+        errors = {}
+
+        if user_input is not None:
+            self.options.update(user_input)
+            return await self.async_step_statistics_sensors()
+
+        clients_to_block = {}
+
+        for client in self.controller.api.clients.values():
+            clients_to_block[
+                client.mac
+            ] = f"{client.name or client.hostname} ({client.mac})"
+
+        return self.async_show_form(
+            step_id="client_control",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_BLOCK_CLIENT, default=self.options[CONF_BLOCK_CLIENT]
+                    ): cv.multi_select(clients_to_block),
+                    vol.Optional(
+                        CONF_POE_CLIENTS,
+                        default=self.options.get(CONF_POE_CLIENTS, DEFAULT_POE_CLIENTS),
+                    ): bool,
+                }
+            ),
+            errors=errors,
         )
 
     async def async_step_statistics_sensors(self, user_input=None):
@@ -217,15 +284,13 @@ class UnifiOptionsFlowHandler(config_entries.OptionsFlow):
             self.options.update(user_input)
             return await self._update_options()
 
-        controller = get_controller_from_config_entry(self.hass, self.config_entry)
-
         return self.async_show_form(
             step_id="statistics_sensors",
             data_schema=vol.Schema(
                 {
                     vol.Optional(
                         CONF_ALLOW_BANDWIDTH_SENSORS,
-                        default=controller.option_allow_bandwidth_sensors,
+                        default=self.controller.option_allow_bandwidth_sensors,
                     ): bool
                 }
             ),

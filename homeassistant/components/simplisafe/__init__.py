@@ -3,9 +3,11 @@ import asyncio
 import logging
 
 from simplipy import API
-from simplipy.errors import InvalidCredentialsError, SimplipyError, WebsocketError
+from simplipy.errors import InvalidCredentialsError, SimplipyError
 from simplipy.websocket import (
     EVENT_CAMERA_MOTION_DETECTED,
+    EVENT_CONNECTION_LOST,
+    EVENT_CONNECTION_RESTORED,
     EVENT_DOORBELL_DETECTED,
     EVENT_ENTRY_DETECTED,
     EVENT_LOCK_LOCKED,
@@ -22,7 +24,7 @@ from homeassistant.const import (
     CONF_TOKEN,
     CONF_USERNAME,
 )
-from homeassistant.core import callback
+from homeassistant.core import CoreState, callback
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import (
     aiohttp_client,
@@ -34,13 +36,12 @@ from homeassistant.helpers.dispatcher import (
     async_dispatcher_send,
 )
 from homeassistant.helpers.entity import Entity
-from homeassistant.helpers.event import async_call_later, async_track_time_interval
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.service import (
     async_register_admin_service,
     verify_domain_control,
 )
 
-from .config_flow import configured_instances
 from .const import (
     ATTR_ALARM_DURATION,
     ATTR_ALARM_VOLUME,
@@ -62,13 +63,13 @@ _LOGGER = logging.getLogger(__name__)
 CONF_ACCOUNTS = "accounts"
 
 DATA_LISTENER = "listener"
-TOPIC_UPDATE = "simplisafe_update_data_{0}"
+TOPIC_UPDATE_REST_API = "simplisafe_update_rest_api_{0}"
+TOPIC_UPDATE_WEBSOCKET = "simplisafe_update_websocket_{0}"
 
 EVENT_SIMPLISAFE_EVENT = "SIMPLISAFE_EVENT"
 EVENT_SIMPLISAFE_NOTIFICATION = "SIMPLISAFE_NOTIFICATION"
 
 DEFAULT_SOCKET_MIN_RETRY = 15
-DEFAULT_WATCHDOG_SECONDS = 5 * 60
 
 WEBSOCKET_EVENTS_REQUIRING_SERIAL = [EVENT_LOCK_LOCKED, EVENT_LOCK_UNLOCKED]
 WEBSOCKET_EVENTS_TO_TRIGGER_HASS_EVENT = [
@@ -184,9 +185,6 @@ async def async_setup(hass, config):
     conf = config[DOMAIN]
 
     for account in conf[CONF_ACCOUNTS]:
-        if account[CONF_USERNAME] in configured_instances(hass):
-            continue
-
         hass.async_create_task(
             hass.config_entries.flow.async_init(
                 DOMAIN,
@@ -204,6 +202,22 @@ async def async_setup(hass, config):
 
 async def async_setup_entry(hass, config_entry):
     """Set up SimpliSafe as config entry."""
+    entry_updates = {}
+    if not config_entry.unique_id:
+        # If the config entry doesn't already have a unique ID, set one:
+        entry_updates["unique_id"] = config_entry.data[CONF_USERNAME]
+    if CONF_CODE in config_entry.data:
+        # If an alarm code was provided as part of configuration.yaml, pop it out of
+        # the config entry's data and move it to options:
+        data = {**config_entry.data}
+        entry_updates["data"] = data
+        entry_updates["options"] = {
+            **config_entry.options,
+            CONF_CODE: data.pop(CONF_CODE),
+        }
+    if entry_updates:
+        hass.config_entries.async_update_entry(config_entry, **entry_updates)
+
     _verify_domain_control = verify_domain_control(hass, DOMAIN)
 
     websession = aiohttp_client.async_get_clientsession(hass)
@@ -307,6 +321,8 @@ async def async_setup_entry(hass, config_entry):
     ]:
         async_register_admin_service(hass, DOMAIN, service, method, schema=schema)
 
+    config_entry.add_update_listener(async_update_options)
+
     return True
 
 
@@ -326,6 +342,12 @@ async def async_unload_entry(hass, entry):
     return True
 
 
+async def async_update_options(hass, config_entry):
+    """Handle an options update."""
+    simplisafe = hass.data[DOMAIN][DATA_CLIENT][config_entry.entry_id]
+    simplisafe.options = config_entry.options
+
+
 class SimpliSafeWebsocket:
     """Define a SimpliSafe websocket "manager" object."""
 
@@ -333,46 +355,11 @@ class SimpliSafeWebsocket:
         """Initialize."""
         self._hass = hass
         self._websocket = websocket
-        self._websocket_reconnect_delay = DEFAULT_SOCKET_MIN_RETRY
-        self._websocket_reconnect_underway = False
-        self._websocket_watchdog_listener = None
-        self.last_events = {}
 
-    async def _async_attempt_websocket_connect(self):
-        """Attempt to connect to the websocket (retrying later on fail)."""
-        self._websocket_reconnect_underway = True
-
-        try:
-            await self._websocket.async_connect()
-        except WebsocketError as err:
-            _LOGGER.error("Error with the websocket connection: %s", err)
-            self._websocket_reconnect_delay = min(
-                2 * self._websocket_reconnect_delay, 480
-            )
-            async_call_later(
-                self._hass,
-                self._websocket_reconnect_delay,
-                self.async_websocket_connect,
-            )
-        else:
-            self._websocket_reconnect_delay = DEFAULT_SOCKET_MIN_RETRY
-            self._websocket_reconnect_underway = False
-
-    async def _async_websocket_reconnect(self, event_time):
-        """Forcibly disconnect from and reconnect to the websocket."""
-        _LOGGER.debug("Websocket watchdog expired; forcing socket reconnection")
-        await self.async_websocket_disconnect()
-        await self._async_attempt_websocket_connect()
-
-    def _on_connect(self):
+    @staticmethod
+    def _on_connect():
         """Define a handler to fire when the websocket is connected."""
         _LOGGER.info("Connected to websocket")
-        _LOGGER.debug("Websocket watchdog starting")
-        if self._websocket_watchdog_listener is not None:
-            self._websocket_watchdog_listener()
-        self._websocket_watchdog_listener = async_call_later(
-            self._hass, DEFAULT_WATCHDOG_SECONDS, self._async_websocket_reconnect
-        )
 
     @staticmethod
     def _on_disconnect():
@@ -382,15 +369,9 @@ class SimpliSafeWebsocket:
     def _on_event(self, event):
         """Define a handler to fire when a new SimpliSafe event arrives."""
         _LOGGER.debug("New websocket event: %s", event)
-        self.last_events[event.system_id] = event
-        async_dispatcher_send(self._hass, TOPIC_UPDATE.format(event.system_id))
-
-        _LOGGER.debug("Resetting websocket watchdog")
-        self._websocket_watchdog_listener()
-        self._websocket_watchdog_listener = async_call_later(
-            self._hass, DEFAULT_WATCHDOG_SECONDS, self._async_websocket_reconnect
+        async_dispatcher_send(
+            self._hass, TOPIC_UPDATE_WEBSOCKET.format(event.system_id), event
         )
-        self._websocket_reconnect_delay = DEFAULT_SOCKET_MIN_RETRY
 
         if event.event_type not in WEBSOCKET_EVENTS_TO_TRIGGER_HASS_EVENT:
             return
@@ -416,18 +397,11 @@ class SimpliSafeWebsocket:
 
     async def async_websocket_connect(self):
         """Register handlers and connect to the websocket."""
-        if self._websocket_reconnect_underway:
-            return
-
         self._websocket.on_connect(self._on_connect)
         self._websocket.on_disconnect(self._on_disconnect)
         self._websocket.on_event(self._on_event)
 
-        await self._async_attempt_websocket_connect()
-
-    async def async_websocket_disconnect(self):
-        """Disconnect from the websocket."""
-        await self._websocket.async_disconnect()
+        await self._websocket.async_connect()
 
 
 class SimpliSafe:
@@ -440,6 +414,7 @@ class SimpliSafe:
         self._emergency_refresh_token_used = False
         self._hass = hass
         self._system_notifications = {}
+        self.options = config_entry.options or {}
         self.initial_event_to_use = {}
         self.systems = {}
         self.websocket = SimpliSafeWebsocket(hass, api.websocket)
@@ -447,19 +422,24 @@ class SimpliSafe:
     @callback
     def _async_process_new_notifications(self, system):
         """Act on any new system notifications."""
-        old_notifications = self._system_notifications.get(system.system_id, [])
-        latest_notifications = system.notifications
+        if self._hass.state != CoreState.running:
+            # If HASS isn't fully running yet, it may cause the SIMPLISAFE_NOTIFICATION
+            # event to fire before dependent components (like automation) are fully
+            # ready. If that's the case, skip:
+            return
 
-        # Save the latest notifications:
-        self._system_notifications[system.system_id] = latest_notifications
+        latest_notifications = set(system.notifications)
 
-        # Process any notifications that are new:
-        to_add = set(latest_notifications) - set(old_notifications)
+        to_add = latest_notifications.difference(
+            self._system_notifications[system.system_id]
+        )
 
         if not to_add:
             return
 
         _LOGGER.debug("New system notifications: %s", to_add)
+
+        self._system_notifications[system.system_id].update(to_add)
 
         for notification in to_add:
             text = notification.text
@@ -482,6 +462,8 @@ class SimpliSafe:
 
         self.systems = await self._api.get_systems()
         for system in self.systems.values():
+            self._system_notifications[system.system_id] = set()
+
             self._hass.async_create_task(
                 async_register_base_station(
                     self._hass, system, self._config_entry.entry_id
@@ -517,7 +499,9 @@ class SimpliSafe:
             await system.update()
             self._async_process_new_notifications(system)
             _LOGGER.debug('Updated REST API data for "%s"', system.address)
-            async_dispatcher_send(self._hass, TOPIC_UPDATE.format(system.system_id))
+            async_dispatcher_send(
+                self._hass, TOPIC_UPDATE_REST_API.format(system.system_id)
+            )
 
         tasks = [update_system(system) for system in self.systems.values()]
 
@@ -564,13 +548,14 @@ class SimpliSafeEntity(Entity):
 
     def __init__(self, simplisafe, system, name, *, serial=None):
         """Initialize."""
-        self._async_unsub_dispatcher_connect = None
-        self._last_processed_websocket_event = None
         self._name = name
         self._online = True
         self._simplisafe = simplisafe
         self._system = system
-        self.websocket_events_to_listen_for = []
+        self.websocket_events_to_listen_for = [
+            EVENT_CONNECTION_LOST,
+            EVENT_CONNECTION_RESTORED,
+        ]
 
         if serial:
             self._serial = serial
@@ -630,86 +615,90 @@ class SimpliSafeEntity(Entity):
         return self._serial
 
     @callback
-    def _async_should_ignore_websocket_event(self, event):
-        """Return whether this entity should ignore a particular websocket event.
+    def _async_internal_update_from_websocket_event(self, event):
+        """Perform internal websocket handling prior to handing off."""
+        if event.event_type == EVENT_CONNECTION_LOST:
+            self._online = False
+        elif event.event_type == EVENT_CONNECTION_RESTORED:
+            self._online = True
 
-        Note that we can't check for a final condition – whether the event belongs to
-        a particular entity, like a lock – because some events (like arming the system
-        from a keypad _or_ from the website) should impact the same entity.
-        """
-        # We've already processed this event:
-        if self._last_processed_websocket_event == event:
-            return True
-
-        # This is an event for a system other than the one this entity belongs to:
-        if event.system_id != self._system.system_id:
-            return True
-
-        # This isn't an event that this entity cares about:
-        if event.event_type not in self.websocket_events_to_listen_for:
-            return True
-
-        # This event is targeted at a specific entity whose serial number is different
-        # from this one's:
-        if (
-            event.event_type in WEBSOCKET_EVENTS_REQUIRING_SERIAL
-            and event.sensor_serial != self._serial
-        ):
-            return True
-
-        return False
-
-    async def async_added_to_hass(self):
-        """Register callbacks."""
-
-        @callback
-        def update():
-            """Update the state."""
-            self.async_schedule_update_ha_state(True)
-
-        self._async_unsub_dispatcher_connect = async_dispatcher_connect(
-            self.hass, TOPIC_UPDATE.format(self._system.system_id), update
-        )
-
-    async def async_update(self):
-        """Update the entity."""
-        self.async_update_from_rest_api()
-
-        last_websocket_event = self._simplisafe.websocket.last_events.get(
-            self._system.system_id
-        )
-
-        if self._async_should_ignore_websocket_event(last_websocket_event):
+        # It's uncertain whether SimpliSafe events will still propagate down the
+        # websocket when the base station is offline. Just in case, we guard against
+        # further action until connection is restored:
+        if not self._online:
             return
 
-        self._last_processed_websocket_event = last_websocket_event
-
-        if last_websocket_event.sensor_type:
-            sensor_type = last_websocket_event.sensor_type.name
+        if event.sensor_type:
+            sensor_type = event.sensor_type.name
         else:
             sensor_type = None
 
         self._attrs.update(
             {
-                ATTR_LAST_EVENT_INFO: last_websocket_event.info,
-                ATTR_LAST_EVENT_SENSOR_NAME: last_websocket_event.sensor_name,
+                ATTR_LAST_EVENT_INFO: event.info,
+                ATTR_LAST_EVENT_SENSOR_NAME: event.sensor_name,
                 ATTR_LAST_EVENT_SENSOR_TYPE: sensor_type,
-                ATTR_LAST_EVENT_TIMESTAMP: last_websocket_event.timestamp,
+                ATTR_LAST_EVENT_TIMESTAMP: event.timestamp,
             }
         )
-        self.async_update_from_websocket_event(last_websocket_event)
+
+        self.async_update_from_websocket_event(event)
+
+    async def async_added_to_hass(self):
+        """Register callbacks."""
+
+        @callback
+        def rest_api_update():
+            """Update the entity with new REST API data."""
+            self.async_update_from_rest_api()
+            self.async_write_ha_state()
+
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                TOPIC_UPDATE_REST_API.format(self._system.system_id),
+                rest_api_update,
+            )
+        )
+
+        @callback
+        def websocket_update(event):
+            """Update the entity with new websocket data."""
+            # Ignore this event if it belongs to a system other than this one:
+            if event.system_id != self._system.system_id:
+                return
+
+            # Ignore this event if this entity hasn't expressed interest in its type:
+            if event.event_type not in self.websocket_events_to_listen_for:
+                return
+
+            # Ignore this event if it belongs to a entity with a different serial
+            # number from this one's:
+            if (
+                event.event_type in WEBSOCKET_EVENTS_REQUIRING_SERIAL
+                and event.sensor_serial != self._serial
+            ):
+                return
+
+            self._async_internal_update_from_websocket_event(event)
+            self.async_write_ha_state()
+
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                TOPIC_UPDATE_WEBSOCKET.format(self._system.system_id),
+                websocket_update,
+            )
+        )
+
+        self.async_update_from_rest_api()
 
     @callback
     def async_update_from_rest_api(self):
         """Update the entity with the provided REST API data."""
-        pass
+        raise NotImplementedError()
 
     @callback
     def async_update_from_websocket_event(self, event):
-        """Update the entity with the provided websocket API data."""
-        pass
-
-    async def async_will_remove_from_hass(self) -> None:
-        """Disconnect dispatcher listener when removed."""
-        if self._async_unsub_dispatcher_connect:
-            self._async_unsub_dispatcher_connect()
+        """Update the entity with the provided websocket event."""
+        raise NotImplementedError()
