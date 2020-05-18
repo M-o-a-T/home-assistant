@@ -210,7 +210,7 @@ def async_enable_logging(
 
     This method must be run in the event loop.
     """
-    fmt = "%(asctime)s %(levelname)s (%(threadName)s) [%(name)s] %(message)s"
+    fmt = "%(threadName)s:%(name)s %(message)s"
     datefmt = "%Y-%m-%d %H:%M:%S"
 
     if not log_no_color:
