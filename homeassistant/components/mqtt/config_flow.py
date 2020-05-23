@@ -1,6 +1,7 @@
 """Config flow for MQTT."""
 from collections import OrderedDict
 import queue
+import paho.mqtt.client as mqtt
 
 import voluptuous as vol
 
@@ -123,7 +124,7 @@ class FlowHandler(config_entries.ConfigFlow):
         )
 
 
-def try_connection(broker, port, username, password, protocol="3.1"):
+def try_connection(broker, port, username, password, protocol=mqtt.MQTTv311):
     """Test if we can connect to an MQTT broker."""
     # pylint: disable=import-outside-toplevel
     import paho.mqtt.client as mqtt
