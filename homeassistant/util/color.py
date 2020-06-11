@@ -561,26 +561,24 @@ def get_closest_point_to_point(
     """
     xy_point = XYPoint(xy_tuple[0], xy_tuple[1])
 
-    # find the closest point on each line in the CIE 1931 'triangle'.
-    pAB = get_closest_point_to_line(Gamut.red, Gamut.green, xy_point)
-    pAC = get_closest_point_to_line(Gamut.blue, Gamut.red, xy_point)
-    pBC = get_closest_point_to_line(Gamut.green, Gamut.blue, xy_point)
+    # Get the distances to each point.
+    dR = get_distance_between_two_points(Gamut.red, xy_point)
+    dG = get_distance_between_two_points(Gamut.green, xy_point)
+    dB = get_distance_between_two_points(Gamut.blue, xy_point)
 
-    # Get the distances per point and see which point is closer to our Point.
-    dAB = get_distance_between_two_points(xy_point, pAB)
-    dAC = get_distance_between_two_points(xy_point, pAC)
-    dBC = get_distance_between_two_points(xy_point, pBC)
+    # Keep the two points that are closest.
+    if dB > dR and dB > dG:
+        pA = Gamut.red
+        pB = Gamut.green
+    elif dR > rG:
+        pA = Gamut.green
+        pB = Gamut.blue
+    else:
+        pA = Gamut.blue
+        pB = Gamut.red
 
-    lowest = dAB
-    closest_point = pAB
-
-    if dAC < lowest:
-        lowest = dAC
-        closest_point = pAC
-
-    if dBC < lowest:
-        lowest = dBC
-        closest_point = pBC
+    # Find the closest point on the line between them.
+    closest_point = get_closest_point_to_line(pA, pB, xy_point)
 
     # Change the xy value to a value which is within the reach of the lamp.
     cx = closest_point.x
