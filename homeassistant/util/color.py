@@ -523,11 +523,13 @@ def cross_product(p1: XYPoint, p2: XYPoint) -> float:
     return float(p1.x * p2.y - p1.y * p2.x)
 
 
-def get_distance_between_two_points(one: XYPoint, two: XYPoint) -> float:
-    """Calculate the distance between two XYPoints."""
+def get_distance_between_two_points_2(one: XYPoint, two: XYPoint) -> float:
+    """Calculate the distance between two XYPoints.
+    
+    We only need the distance for comparison, so skip the square root."""
     dx = one.x - two.x
     dy = one.y - two.y
-    return math.sqrt(dx * dx + dy * dy)
+    return dx * dx + dy * dy
 
 
 def get_closest_point_to_line(A: XYPoint, B: XYPoint, P: XYPoint) -> XYPoint:
@@ -562,9 +564,9 @@ def get_closest_point_to_point(
     xy_point = XYPoint(xy_tuple[0], xy_tuple[1])
 
     # Get the distances to each point.
-    dR = get_distance_between_two_points(Gamut.red, xy_point)
-    dG = get_distance_between_two_points(Gamut.green, xy_point)
-    dB = get_distance_between_two_points(Gamut.blue, xy_point)
+    dR = get_distance_between_two_points_2(Gamut.red, xy_point)
+    dG = get_distance_between_two_points_2(Gamut.green, xy_point)
+    dB = get_distance_between_two_points_2(Gamut.blue, xy_point)
 
     # Keep the two points that are closest.
     if dB > dR and dB > dG:
