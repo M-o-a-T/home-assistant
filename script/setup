@@ -10,4 +10,4 @@ cd "$(dirname "$0")/.."
 # script/bootstrap
 
 pre-commit install
-pip3 install -e .
+pip install -e .
