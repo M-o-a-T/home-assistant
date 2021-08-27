@@ -1,4 +1,5 @@
 """Test configuration for the ZHA component."""
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
 import zigpy
@@ -14,8 +15,8 @@ from homeassistant.setup import async_setup_component
 
 from .common import FakeDevice, FakeEndpoint, get_zha_gateway
 
-from tests.async_mock import AsyncMock, MagicMock, PropertyMock, patch
 from tests.common import MockConfigEntry
+from tests.components.light.conftest import mock_light_profiles  # noqa: F401
 
 FIXTURE_GRP_ID = 0x1001
 FIXTURE_GRP_NAME = "fixture group"
@@ -46,6 +47,15 @@ async def config_entry_fixture(hass):
         data={
             zigpy.config.CONF_DEVICE: {zigpy.config.CONF_DEVICE_PATH: "/dev/ttyUSB0"},
             zha_const.CONF_RADIO_TYPE: "ezsp",
+        },
+        options={
+            zha_const.CUSTOM_CONFIGURATION: {
+                zha_const.ZHA_ALARM_OPTIONS: {
+                    zha_const.CONF_ALARM_ARM_REQUIRES_CODE: False,
+                    zha_const.CONF_ALARM_MASTER_CODE: "4321",
+                    zha_const.CONF_ALARM_FAILED_TRIES: 2,
+                }
+            }
         },
     )
     entry.add_to_hass(hass)
@@ -101,6 +111,7 @@ def zigpy_device_mock(zigpy_app_controller):
         model="FakeModel",
         node_descriptor=b"\x02@\x807\x10\x7fd\x00\x00*d\x00\x00",
         nwk=0xB79C,
+        patch_cluster=True,
     ):
         """Make a fake device using the specified cluster classes."""
         device = FakeDevice(
@@ -116,10 +127,10 @@ def zigpy_device_mock(zigpy_app_controller):
                 endpoint.profile_id = profile_id
 
             for cluster_id in ep.get("in_clusters", []):
-                endpoint.add_input_cluster(cluster_id)
+                endpoint.add_input_cluster(cluster_id, _patch_cluster=patch_cluster)
 
             for cluster_id in ep.get("out_clusters", []):
-                endpoint.add_output_cluster(cluster_id)
+                endpoint.add_output_cluster(cluster_id, _patch_cluster=patch_cluster)
 
         return device
 
@@ -187,6 +198,7 @@ def zha_device_mock(hass, zigpy_device_mock):
         manufacturer="mock manufacturer",
         model="mock model",
         node_desc=b"\x02@\x807\x10\x7fd\x00\x00*d\x00\x00",
+        patch_cluster=True,
     ):
         if endpoints is None:
             endpoints = {
@@ -202,9 +214,18 @@ def zha_device_mock(hass, zigpy_device_mock):
                 },
             }
         zigpy_device = zigpy_device_mock(
-            endpoints, ieee, manufacturer, model, node_desc
+            endpoints, ieee, manufacturer, model, node_desc, patch_cluster=patch_cluster
         )
         zha_device = zha_core_device.ZHADevice(hass, zigpy_device, MagicMock())
         return zha_device
 
     return _zha_device
+
+
+@pytest.fixture
+def hass_disable_services(hass):
+    """Mock service register."""
+    with patch.object(hass.services, "async_register"), patch.object(
+        hass.services, "has_service", return_value=True
+    ):
+        yield hass

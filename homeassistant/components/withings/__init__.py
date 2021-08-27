@@ -3,13 +3,14 @@ Support for the Withings API.
 
 For more details about this platform, please refer to the documentation at
 """
+from __future__ import annotations
+
 import asyncio
-from typing import Optional, cast
 
 from aiohttp.web import Request, Response
 import voluptuous as vol
 from withings_api import WithingsAuth
-from withings_api.common import NotifyAppli, enum_or_raise
+from withings_api.common import NotifyAppli
 
 from homeassistant.components import webhook
 from homeassistant.components.binary_sensor import DOMAIN as BINARY_SENSOR_DOMAIN
@@ -20,7 +21,6 @@ from homeassistant.components.webhook import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_CLIENT_ID, CONF_CLIENT_SECRET, CONF_WEBHOOK_ID
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.typing import ConfigType
@@ -40,7 +40,7 @@ DOMAIN = const.DOMAIN
 CONFIG_SCHEMA = vol.Schema(
     {
         DOMAIN: vol.All(
-            cv.deprecated(const.CONF_PROFILES, invalidation_version="0.114"),
+            cv.deprecated(const.CONF_PROFILES),
             vol.Schema(
                 {
                     vol.Required(CONF_CLIENT_ID): vol.All(cv.string, vol.Length(min=1)),
@@ -120,9 +120,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     data_manager = await async_get_data_manager(hass, entry)
 
     _LOGGER.debug("Confirming %s is authenticated to withings", data_manager.profile)
-    await data_manager.poll_data_update_coordinator.async_refresh()
-    if not data_manager.poll_data_update_coordinator.last_update_success:
-        raise ConfigEntryNotReady()
+    await data_manager.poll_data_update_coordinator.async_config_entry_first_refresh()
 
     webhook.async_register(
         hass,
@@ -175,7 +173,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_webhook_handler(
     hass: HomeAssistant, webhook_id: str, request: Request
-) -> Optional[Response]:
+) -> Response | None:
     """Handle webhooks calls."""
     # Handle http head calls to the path.
     # When creating a notify subscription, Withings will check that the endpoint is running by sending a HEAD request.
@@ -183,11 +181,11 @@ async def async_webhook_handler(
         return Response()
 
     if request.method.upper() != "POST":
-        return json_message_response("Invalid method.", message_code=2)
+        return json_message_response("Invalid method", message_code=2)
 
     # Handle http post calls to the path.
     if not request.body_exists:
-        return json_message_response("No request body.", message_code=12)
+        return json_message_response("No request body", message_code=12)
 
     params = await request.post()
 
@@ -195,16 +193,14 @@ async def async_webhook_handler(
         return json_message_response("Parameter appli not provided", message_code=20)
 
     try:
-        appli = cast(
-            NotifyAppli, enum_or_raise(int(params.getone("appli")), NotifyAppli)
-        )
+        appli = NotifyAppli(int(params.getone("appli")))
     except ValueError:
         return json_message_response("Invalid appli provided", message_code=21)
 
     data_manager = get_data_manager_by_webhook_id(hass, webhook_id)
     if not data_manager:
         _LOGGER.error(
-            "Webhook id %s not handled by data manager. This is a bug and should be reported.",
+            "Webhook id %s not handled by data manager. This is a bug and should be reported",
             webhook_id,
         )
         return json_message_response("User not found", message_code=1)

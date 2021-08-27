@@ -193,8 +193,8 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
         for player in target_players:
             await getattr(player, method["method"])(**params)
 
-    for service in SERVICE_TO_METHOD:
-        schema = SERVICE_TO_METHOD[service]["schema"]
+    for service, method in SERVICE_TO_METHOD.items():
+        schema = method["schema"]
         hass.services.async_register(
             DOMAIN, service, async_service_handler, schema=schema
         )
@@ -220,7 +220,7 @@ class BluesoundPlayer(MediaPlayerEntity):
         self._last_status_update = None
         self._is_online = False
         self._retry_remove = None
-        self._lastvol = None
+        self._muted = False
         self._master = None
         self._is_master = False
         self._group_name = None
@@ -660,10 +660,13 @@ class BluesoundPlayer(MediaPlayerEntity):
     @property
     def is_volume_muted(self):
         """Boolean if volume is currently muted."""
-        volume = self.volume_level
-        if not volume:
-            return None
-        return 0 <= volume < 0.001
+        mute = self._status.get("mute")
+        if self.is_grouped:
+            mute = self._sync_status.get("@mute")
+
+        if mute is not None:
+            mute = bool(int(mute))
+        return mute
 
     @property
     def name(self):
@@ -847,7 +850,7 @@ class BluesoundPlayer(MediaPlayerEntity):
             _LOGGER.error("Master not found %s", master_device)
 
     @property
-    def device_state_attributes(self):
+    def extra_state_attributes(self):
         """List members in group."""
         attributes = {}
         if self._group_list:
@@ -1044,10 +1047,5 @@ class BluesoundPlayer(MediaPlayerEntity):
     async def async_mute_volume(self, mute):
         """Send mute command to media player."""
         if mute:
-            volume = self.volume_level
-            if volume > 0:
-                self._lastvol = volume
-            return await self.send_bluesound_command("Volume?level=0")
-        return await self.send_bluesound_command(
-            f"Volume?level={float(self._lastvol) * 100}"
-        )
+            return await self.send_bluesound_command("Volume?mute=1")
+        return await self.send_bluesound_command("Volume?mute=0")

@@ -7,6 +7,7 @@
             "cannot_connect": "Failed to connect",
             "invalid_auth": "Invalid authentication"
         },
+        "flow_title": "{device} ({ip_address})",
         "step": {
             "user": {
                 "data": {
@@ -14,8 +15,8 @@
                     "password": "Password",
                     "username": "Username"
                 },
-                "description": "Provide requisite information below. Note: only the 'admin' user is known to work.",
-                "title": "Setup GogoGate2"
+                "description": "Provide requisite information below.",
+                "title": "Setup Gogogate2 or ismartgate"
             }
         }
     }

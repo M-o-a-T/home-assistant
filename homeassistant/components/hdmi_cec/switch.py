@@ -2,9 +2,9 @@
 import logging
 
 from homeassistant.components.switch import DOMAIN, SwitchEntity
-from homeassistant.const import STATE_OFF, STATE_ON, STATE_STANDBY
+from homeassistant.const import STATE_OFF, STATE_ON
 
-from . import ATTR_NEW, CecDevice
+from . import ATTR_NEW, CecEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -18,27 +18,29 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         entities = []
         for device in discovery_info[ATTR_NEW]:
             hdmi_device = hass.data.get(device)
-            entities.append(CecSwitchDevice(hdmi_device, hdmi_device.logical_address))
+            entities.append(CecSwitchEntity(hdmi_device, hdmi_device.logical_address))
         add_entities(entities, True)
 
 
-class CecSwitchDevice(CecDevice, SwitchEntity):
+class CecSwitchEntity(CecEntity, SwitchEntity):
     """Representation of a HDMI device as a Switch."""
 
     def __init__(self, device, logical) -> None:
         """Initialize the HDMI device."""
-        CecDevice.__init__(self, device, logical)
+        CecEntity.__init__(self, device, logical)
         self.entity_id = f"{DOMAIN}.hdmi_{hex(self._logical_address)[2:]}"
 
     def turn_on(self, **kwargs) -> None:
         """Turn device on."""
         self._device.turn_on()
         self._state = STATE_ON
+        self.schedule_update_ha_state(force_refresh=False)
 
     def turn_off(self, **kwargs) -> None:
         """Turn device off."""
         self._device.turn_off()
-        self._state = STATE_ON
+        self._state = STATE_OFF
+        self.schedule_update_ha_state(force_refresh=False)
 
     def toggle(self, **kwargs):
         """Toggle the entity."""
@@ -47,16 +49,12 @@ class CecSwitchDevice(CecDevice, SwitchEntity):
             self._state = STATE_OFF
         else:
             self._state = STATE_ON
+        self.schedule_update_ha_state(force_refresh=False)
 
     @property
     def is_on(self) -> bool:
         """Return True if entity is on."""
         return self._state == STATE_ON
-
-    @property
-    def is_standby(self):
-        """Return true if device is in standby."""
-        return self._state == STATE_OFF or self._state == STATE_STANDBY
 
     @property
     def state(self) -> str:

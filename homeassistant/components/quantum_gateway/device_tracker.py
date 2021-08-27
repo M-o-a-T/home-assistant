@@ -7,7 +7,7 @@ import voluptuous as vol
 
 from homeassistant.components.device_tracker import (
     DOMAIN,
-    PLATFORM_SCHEMA,
+    PLATFORM_SCHEMA as PARENT_PLATFORM_SCHEMA,
     DeviceScanner,
 )
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_SSL
@@ -17,7 +17,7 @@ _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_HOST = "myfiosgateway.com"
 
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
+PLATFORM_SCHEMA = PARENT_PLATFORM_SCHEMA.extend(
     {
         vol.Optional(CONF_HOST, default=DEFAULT_HOST): cv.string,
         vol.Optional(CONF_SSL, default=True): cv.boolean,
@@ -51,10 +51,10 @@ class QuantumGatewayDeviceScanner(DeviceScanner):
             self.success_init = self.quantum.success_init
         except RequestException:
             self.success_init = False
-            _LOGGER.error("Unable to connect to gateway. Check host.")
+            _LOGGER.error("Unable to connect to gateway. Check host")
 
         if not self.success_init:
-            _LOGGER.error("Unable to login to gateway. Check password and host.")
+            _LOGGER.error("Unable to login to gateway. Check password and host")
 
     def scan_devices(self):
         """Scan for new devices and return a list of found MACs."""

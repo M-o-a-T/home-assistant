@@ -7,7 +7,7 @@ import voluptuous as vol
 
 from homeassistant.components.recorder.models import States
 from homeassistant.components.recorder.util import execute, session_scope
-from homeassistant.components.sensor import PLATFORM_SCHEMA
+from homeassistant.components.sensor import PLATFORM_SCHEMA, SensorEntity
 from homeassistant.const import (
     ATTR_UNIT_OF_MEASUREMENT,
     CONF_ENTITY_ID,
@@ -17,13 +17,15 @@ from homeassistant.const import (
     STATE_UNKNOWN,
 )
 from homeassistant.core import callback
-import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers.entity import Entity
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import (
     async_track_point_in_utc_time,
-    async_track_state_change,
+    async_track_state_change_event,
 )
+from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.util import dt as dt_util
+
+from . import DOMAIN, PLATFORMS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,6 +39,7 @@ ATTR_MEAN = "mean"
 ATTR_MEDIAN = "median"
 ATTR_MIN_AGE = "min_age"
 ATTR_MIN_VALUE = "min_value"
+ATTR_QUANTILES = "quantiles"
 ATTR_SAMPLING_SIZE = "sampling_size"
 ATTR_STANDARD_DEVIATION = "standard_deviation"
 ATTR_TOTAL = "total"
@@ -45,10 +48,14 @@ ATTR_VARIANCE = "variance"
 CONF_SAMPLING_SIZE = "sampling_size"
 CONF_MAX_AGE = "max_age"
 CONF_PRECISION = "precision"
+CONF_QUANTILE_INTERVALS = "quantile_intervals"
+CONF_QUANTILE_METHOD = "quantile_method"
 
 DEFAULT_NAME = "Stats"
 DEFAULT_SIZE = 20
 DEFAULT_PRECISION = 2
+DEFAULT_QUANTILE_INTERVALS = 4
+DEFAULT_QUANTILE_METHOD = "exclusive"
 ICON = "mdi:calculator"
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
@@ -60,29 +67,60 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
         ),
         vol.Optional(CONF_MAX_AGE): cv.time_period,
         vol.Optional(CONF_PRECISION, default=DEFAULT_PRECISION): vol.Coerce(int),
+        vol.Optional(
+            CONF_QUANTILE_INTERVALS, default=DEFAULT_QUANTILE_INTERVALS
+        ): vol.All(vol.Coerce(int), vol.Range(min=2)),
+        vol.Optional(CONF_QUANTILE_METHOD, default=DEFAULT_QUANTILE_METHOD): vol.In(
+            ["exclusive", "inclusive"]
+        ),
     }
 )
 
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up the Statistics sensor."""
+
+    await async_setup_reload_service(hass, DOMAIN, PLATFORMS)
+
     entity_id = config.get(CONF_ENTITY_ID)
     name = config.get(CONF_NAME)
     sampling_size = config.get(CONF_SAMPLING_SIZE)
     max_age = config.get(CONF_MAX_AGE)
     precision = config.get(CONF_PRECISION)
+    quantile_intervals = config.get(CONF_QUANTILE_INTERVALS)
+    quantile_method = config.get(CONF_QUANTILE_METHOD)
 
     async_add_entities(
-        [StatisticsSensor(entity_id, name, sampling_size, max_age, precision)], True
+        [
+            StatisticsSensor(
+                entity_id,
+                name,
+                sampling_size,
+                max_age,
+                precision,
+                quantile_intervals,
+                quantile_method,
+            )
+        ],
+        True,
     )
 
     return True
 
 
-class StatisticsSensor(Entity):
+class StatisticsSensor(SensorEntity):
     """Representation of a Statistics sensor."""
 
-    def __init__(self, entity_id, name, sampling_size, max_age, precision):
+    def __init__(
+        self,
+        entity_id,
+        name,
+        sampling_size,
+        max_age,
+        precision,
+        quantile_intervals,
+        quantile_method,
+    ):
         """Initialize the Statistics sensor."""
         self._entity_id = entity_id
         self.is_binary = self._entity_id.split(".")[0] == "binary_sensor"
@@ -90,12 +128,14 @@ class StatisticsSensor(Entity):
         self._sampling_size = sampling_size
         self._max_age = max_age
         self._precision = precision
+        self._quantile_intervals = quantile_intervals
+        self._quantile_method = quantile_method
         self._unit_of_measurement = None
         self.states = deque(maxlen=self._sampling_size)
         self.ages = deque(maxlen=self._sampling_size)
 
         self.count = 0
-        self.mean = self.median = self.stdev = self.variance = None
+        self.mean = self.median = self.quantiles = self.stdev = self.variance = None
         self.total = self.min = self.max = None
         self.min_age = self.max_age = None
         self.change = self.average_change = self.change_rate = None
@@ -105,8 +145,12 @@ class StatisticsSensor(Entity):
         """Register callbacks."""
 
         @callback
-        def async_stats_sensor_state_listener(entity, old_state, new_state):
+        def async_stats_sensor_state_listener(event):
             """Handle the sensor state changes."""
+            new_state = event.data.get("new_state")
+            if new_state is None:
+                return
+
             self._unit_of_measurement = new_state.attributes.get(
                 ATTR_UNIT_OF_MEASUREMENT
             )
@@ -116,12 +160,14 @@ class StatisticsSensor(Entity):
             self.async_schedule_update_ha_state(True)
 
         @callback
-        def async_stats_sensor_startup(event):
+        def async_stats_sensor_startup(_):
             """Add listener and get recorded state."""
             _LOGGER.debug("Startup for %s", self.entity_id)
 
-            async_track_state_change(
-                self.hass, self._entity_id, async_stats_sensor_state_listener
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, [self._entity_id], async_stats_sensor_state_listener
+                )
             )
 
             if "recorder" in self.hass.config.components:
@@ -172,7 +218,7 @@ class StatisticsSensor(Entity):
         return False
 
     @property
-    def device_state_attributes(self):
+    def extra_state_attributes(self):
         """Return the state attributes of the sensor."""
         if not self.is_binary:
             return {
@@ -180,6 +226,7 @@ class StatisticsSensor(Entity):
                 ATTR_COUNT: self.count,
                 ATTR_MEAN: self.mean,
                 ATTR_MEDIAN: self.median,
+                ATTR_QUANTILES: self.quantiles,
                 ATTR_STANDARD_DEVIATION: self.stdev,
                 ATTR_VARIANCE: self.variance,
                 ATTR_TOTAL: self.total,
@@ -229,7 +276,7 @@ class StatisticsSensor(Entity):
 
     async def async_update(self):
         """Get the latest data and updates the states."""
-        _LOGGER.debug("%s: updating statistics.", self.entity_id)
+        _LOGGER.debug("%s: updating statistics", self.entity_id)
         if self._max_age is not None:
             self._purge_old()
 
@@ -246,9 +293,18 @@ class StatisticsSensor(Entity):
             try:  # require at least two data points
                 self.stdev = round(statistics.stdev(self.states), self._precision)
                 self.variance = round(statistics.variance(self.states), self._precision)
+                if self._quantile_intervals < self.count:
+                    self.quantiles = [
+                        round(quantile, self._precision)
+                        for quantile in statistics.quantiles(
+                            self.states,
+                            n=self._quantile_intervals,
+                            method=self._quantile_method,
+                        )
+                    ]
             except statistics.StatisticsError as err:
                 _LOGGER.debug("%s: %s", self.entity_id, err)
-                self.stdev = self.variance = STATE_UNKNOWN
+                self.stdev = self.variance = self.quantiles = STATE_UNKNOWN
 
             if self.states:
                 self.total = round(sum(self.states), self._precision)
@@ -327,7 +383,7 @@ class StatisticsSensor(Entity):
                 )
                 query = query.filter(States.last_updated >= records_older_then)
             else:
-                _LOGGER.debug("%s: retrieving all records.", self.entity_id)
+                _LOGGER.debug("%s: retrieving all records", self.entity_id)
 
             query = query.order_by(States.last_updated.desc()).limit(
                 self._sampling_size

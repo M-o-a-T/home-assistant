@@ -1,13 +1,12 @@
 """The tests for the Azure Event Hub component."""
-from collections import namedtuple
+from dataclasses import dataclass
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 import homeassistant.components.azure_event_hub as azure_event_hub
 from homeassistant.const import STATE_ON
 from homeassistant.setup import async_setup_component
-
-from tests.async_mock import MagicMock, patch
 
 AZURE_EVENT_HUB_PATH = "homeassistant.components.azure_event_hub"
 PRODUCER_PATH = f"{AZURE_EVENT_HUB_PATH}.EventHubProducerClient"
@@ -17,7 +16,14 @@ MIN_CONFIG = {
     "event_hub_sas_policy": "policy",
     "event_hub_sas_key": "key",
 }
-FilterTest = namedtuple("FilterTest", "id should_pass")
+
+
+@dataclass
+class FilterTest:
+    """Class for capturing a filter test."""
+
+    id: str
+    should_pass: bool
 
 
 @pytest.fixture(autouse=True, name="mock_client", scope="module")

@@ -1,16 +1,12 @@
 """Allows to configure a switch using RPi GPIO."""
-import logging
-
 import voluptuous as vol
 
-from homeassistant.components.switch import PLATFORM_SCHEMA, SwitchDevice
+from homeassistant.components.switch import PLATFORM_SCHEMA, SwitchEntity
 from homeassistant.const import CONF_HOST, DEVICE_DEFAULT_NAME
 import homeassistant.helpers.config_validation as cv
 
 from . import CONF_INVERT_LOGIC, DEFAULT_INVERT_LOGIC
 from .. import remote_rpi_gpio
-
-_LOGGER = logging.getLogger(__name__)
 
 CONF_PORTS = "ports"
 
@@ -43,8 +39,8 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
     add_entities(devices)
 
 
-class RemoteRPiGPIOSwitch(SwitchDevice):
-    """Representation of a Remtoe Raspberry Pi GPIO."""
+class RemoteRPiGPIOSwitch(SwitchEntity):
+    """Representation of a Remote Raspberry Pi GPIO."""
 
     def __init__(self, name, led):
         """Initialize the pin."""

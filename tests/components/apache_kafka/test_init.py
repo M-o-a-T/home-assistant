@@ -1,13 +1,16 @@
 """The tests for the Apache Kafka component."""
-from collections import namedtuple
+from __future__ import annotations
+
+from asyncio import AbstractEventLoop
+from dataclasses import dataclass
+from typing import Callable
+from unittest.mock import patch
 
 import pytest
 
 import homeassistant.components.apache_kafka as apache_kafka
 from homeassistant.const import STATE_ON
 from homeassistant.setup import async_setup_component
-
-from tests.async_mock import patch
 
 APACHE_KAFKA_PATH = "homeassistant.components.apache_kafka"
 PRODUCER_PATH = f"{APACHE_KAFKA_PATH}.AIOKafkaProducer"
@@ -16,8 +19,23 @@ MIN_CONFIG = {
     "port": 8080,
     "topic": "topic",
 }
-FilterTest = namedtuple("FilterTest", "id should_pass")
-MockKafkaClient = namedtuple("MockKafkaClient", "init start send_and_wait")
+
+
+@dataclass
+class FilterTest:
+    """Class for capturing a filter test."""
+
+    id: str
+    should_pass: bool
+
+
+@dataclass
+class MockKafkaClient:
+    """Mock of the Apache Kafka client for testing."""
+
+    init: Callable[[type[AbstractEventLoop], str, str], None]
+    start: Callable[[], None]
+    send_and_wait: Callable[[str, str], None]
 
 
 @pytest.fixture(name="mock_client")

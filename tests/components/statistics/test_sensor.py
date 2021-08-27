@@ -1,21 +1,36 @@
 """The test for the statistics sensor platform."""
 from datetime import datetime, timedelta
+from os import path
 import statistics
 import unittest
+from unittest.mock import patch
 
+import pytest
+
+from homeassistant import config as hass_config
 from homeassistant.components import recorder
-from homeassistant.components.statistics.sensor import StatisticsSensor
-from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, STATE_UNKNOWN, TEMP_CELSIUS
-from homeassistant.setup import setup_component
+from homeassistant.components.statistics.sensor import DOMAIN, StatisticsSensor
+from homeassistant.const import (
+    ATTR_UNIT_OF_MEASUREMENT,
+    SERVICE_RELOAD,
+    STATE_UNKNOWN,
+    TEMP_CELSIUS,
+)
+from homeassistant.setup import async_setup_component, setup_component
 from homeassistant.util import dt as dt_util
 
-from tests.async_mock import patch
 from tests.common import (
     fire_time_changed,
     get_test_home_assistant,
     init_recorder_component,
 )
 from tests.components.recorder.common import wait_recording_done
+
+
+@pytest.fixture(autouse=True)
+def mock_legacy_time(legacy_patchable_time):
+    """Make time patchable for all the tests."""
+    yield
 
 
 class TestStatisticsSensor(unittest.TestCase):
@@ -33,13 +48,13 @@ class TestStatisticsSensor(unittest.TestCase):
         self.median = round(statistics.median(self.values), 2)
         self.deviation = round(statistics.stdev(self.values), 2)
         self.variance = round(statistics.variance(self.values), 2)
+        self.quantiles = [
+            round(quantile, 2) for quantile in statistics.quantiles(self.values)
+        ]
         self.change = round(self.values[-1] - self.values[0], 2)
         self.average_change = round(self.change / (len(self.values) - 1), 2)
         self.change_rate = round(self.change / (60 * (self.count - 1)), 2)
-
-    def teardown_method(self, method):
-        """Stop everything that was started."""
-        self.hass.stop()
+        self.addCleanup(self.hass.stop)
 
     def test_binary_sensor_source(self):
         """Test if source is a sensor."""
@@ -100,10 +115,11 @@ class TestStatisticsSensor(unittest.TestCase):
         assert self.variance == state.attributes.get("variance")
         assert self.median == state.attributes.get("median")
         assert self.deviation == state.attributes.get("standard_deviation")
+        assert self.quantiles == state.attributes.get("quantiles")
         assert self.mean == state.attributes.get("mean")
         assert self.count == state.attributes.get("count")
         assert self.total == state.attributes.get("total")
-        assert TEMP_CELSIUS == state.attributes.get("unit_of_measurement")
+        assert state.attributes.get(ATTR_UNIT_OF_MEASUREMENT) == TEMP_CELSIUS
         assert self.change == state.attributes.get("change")
         assert self.average_change == state.attributes.get("average_change")
 
@@ -134,8 +150,8 @@ class TestStatisticsSensor(unittest.TestCase):
 
         state = self.hass.states.get("sensor.test")
 
-        assert 3.8 == state.attributes.get("min_value")
-        assert 14 == state.attributes.get("max_value")
+        assert state.attributes.get("min_value") == 3.8
+        assert state.attributes.get("max_value") == 14
 
     def test_sampling_size_1(self):
         """Test validity of stats requiring only one sample."""
@@ -170,16 +186,20 @@ class TestStatisticsSensor(unittest.TestCase):
         assert self.values[-1] == state.attributes.get("mean")
         assert self.values[-1] == state.attributes.get("median")
         assert self.values[-1] == state.attributes.get("total")
-        assert 0 == state.attributes.get("change")
-        assert 0 == state.attributes.get("average_change")
+        assert state.attributes.get("change") == 0
+        assert state.attributes.get("average_change") == 0
 
         # require at least two data points
-        assert STATE_UNKNOWN == state.attributes.get("variance")
-        assert STATE_UNKNOWN == state.attributes.get("standard_deviation")
+        assert state.attributes.get("variance") == STATE_UNKNOWN
+        assert state.attributes.get("standard_deviation") == STATE_UNKNOWN
+        assert state.attributes.get("quantiles") == STATE_UNKNOWN
 
     def test_max_age(self):
         """Test value deprecation."""
-        mock_data = {"return_time": datetime(2017, 8, 2, 12, 23, tzinfo=dt_util.UTC)}
+        now = dt_util.utcnow()
+        mock_data = {
+            "return_time": datetime(now.year + 1, 8, 2, 12, 23, tzinfo=dt_util.UTC)
+        }
 
         def mock_now():
             return mock_data["return_time"]
@@ -216,12 +236,15 @@ class TestStatisticsSensor(unittest.TestCase):
 
             state = self.hass.states.get("sensor.test")
 
-        assert 6 == state.attributes.get("min_value")
-        assert 14 == state.attributes.get("max_value")
+        assert state.attributes.get("min_value") == 6
+        assert state.attributes.get("max_value") == 14
 
     def test_max_age_without_sensor_change(self):
         """Test value deprecation."""
-        mock_data = {"return_time": datetime(2017, 8, 2, 12, 23, tzinfo=dt_util.UTC)}
+        now = dt_util.utcnow()
+        mock_data = {
+            "return_time": datetime(now.year + 1, 8, 2, 12, 23, tzinfo=dt_util.UTC)
+        }
 
         def mock_now():
             return mock_data["return_time"]
@@ -258,8 +281,8 @@ class TestStatisticsSensor(unittest.TestCase):
 
             state = self.hass.states.get("sensor.test")
 
-            assert 3.8 == state.attributes.get("min_value")
-            assert 15.2 == state.attributes.get("max_value")
+            assert state.attributes.get("min_value") == 3.8
+            assert state.attributes.get("max_value") == 15.2
 
             # wait for 3 minutes (max_age).
             mock_data["return_time"] += timedelta(minutes=3)
@@ -274,8 +297,9 @@ class TestStatisticsSensor(unittest.TestCase):
 
     def test_change_rate(self):
         """Test min_age/max_age and change_rate."""
+        now = dt_util.utcnow()
         mock_data = {
-            "return_time": datetime(2017, 8, 2, 12, 23, 42, tzinfo=dt_util.UTC)
+            "return_time": datetime(now.year + 1, 8, 2, 12, 23, 42, tzinfo=dt_util.UTC)
         }
 
         def mock_now():
@@ -313,10 +337,10 @@ class TestStatisticsSensor(unittest.TestCase):
             state = self.hass.states.get("sensor.test")
 
         assert datetime(
-            2017, 8, 2, 12, 23, 42, tzinfo=dt_util.UTC
+            now.year + 1, 8, 2, 12, 23, 42, tzinfo=dt_util.UTC
         ) == state.attributes.get("min_age")
         assert datetime(
-            2017, 8, 2, 12, 23 + self.count - 1, 42, tzinfo=dt_util.UTC
+            now.year + 1, 8, 2, 12, 23 + self.count - 1, 42, tzinfo=dt_util.UTC
         ) == state.attributes.get("max_age")
         assert self.change_rate == state.attributes.get("change_rate")
 
@@ -359,8 +383,9 @@ class TestStatisticsSensor(unittest.TestCase):
 
     def test_initialize_from_database_with_maxage(self):
         """Test initializing the statistics from the database."""
+        now = dt_util.utcnow()
         mock_data = {
-            "return_time": datetime(2017, 8, 2, 12, 23, 42, tzinfo=dt_util.UTC)
+            "return_time": datetime(now.year + 1, 8, 2, 12, 23, 42, tzinfo=dt_util.UTC)
         }
 
         def mock_now():
@@ -429,3 +454,54 @@ class TestStatisticsSensor(unittest.TestCase):
         assert mock_data["return_time"] == state.attributes.get("max_age") + timedelta(
             hours=1
         )
+
+
+async def test_reload(hass):
+    """Verify we can reload filter sensors."""
+    await hass.async_add_executor_job(
+        init_recorder_component, hass
+    )  # force in memory db
+
+    hass.states.async_set("sensor.test_monitored", 12345)
+    await async_setup_component(
+        hass,
+        "sensor",
+        {
+            "sensor": {
+                "platform": "statistics",
+                "name": "test",
+                "entity_id": "sensor.test_monitored",
+                "sampling_size": 100,
+            }
+        },
+    )
+    await hass.async_block_till_done()
+    await hass.async_start()
+    await hass.async_block_till_done()
+
+    assert len(hass.states.async_all()) == 2
+
+    assert hass.states.get("sensor.test")
+
+    yaml_path = path.join(
+        _get_fixtures_base_path(),
+        "fixtures",
+        "statistics/configuration.yaml",
+    )
+    with patch.object(hass_config, "YAML_CONFIG_FILE", yaml_path):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_RELOAD,
+            {},
+            blocking=True,
+        )
+        await hass.async_block_till_done()
+
+    assert len(hass.states.async_all()) == 2
+
+    assert hass.states.get("sensor.test") is None
+    assert hass.states.get("sensor.cputest")
+
+
+def _get_fixtures_base_path():
+    return path.dirname(path.dirname(path.dirname(__file__)))

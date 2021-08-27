@@ -1,17 +1,18 @@
 """Viessmann ViCare sensor device."""
+from contextlib import suppress
 import logging
 
+from PyViCare.PyViCare import PyViCareNotSupportedFeatureError, PyViCareRateLimitError
 import requests
 
 from homeassistant.components.binary_sensor import (
     DEVICE_CLASS_POWER,
-    BinarySensorDevice,
+    BinarySensorEntity,
 )
 from homeassistant.const import CONF_DEVICE_CLASS, CONF_NAME
 
 from . import (
     DOMAIN as VICARE_DOMAIN,
-    PYVICARE_ERROR,
     VICARE_API,
     VICARE_HEATING_TYPE,
     VICARE_NAME,
@@ -23,7 +24,11 @@ _LOGGER = logging.getLogger(__name__)
 CONF_GETTER = "getter"
 
 SENSOR_CIRCULATION_PUMP_ACTIVE = "circulationpump_active"
+
+# gas sensors
 SENSOR_BURNER_ACTIVE = "burner_active"
+
+# heatpump sensors
 SENSOR_COMPRESSOR_ACTIVE = "compressor_active"
 
 SENSOR_TYPES = {
@@ -50,7 +55,10 @@ SENSORS_GENERIC = [SENSOR_CIRCULATION_PUMP_ACTIVE]
 
 SENSORS_BY_HEATINGTYPE = {
     HeatingType.gas: [SENSOR_BURNER_ACTIVE],
-    HeatingType.heatpump: [SENSOR_COMPRESSOR_ACTIVE],
+    HeatingType.heatpump: [
+        SENSOR_COMPRESSOR_ACTIVE,
+    ],
+    HeatingType.fuelcell: [SENSOR_BURNER_ACTIVE],
 }
 
 
@@ -77,7 +85,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
     )
 
 
-class ViCareBinarySensor(BinarySensorDevice):
+class ViCareBinarySensor(BinarySensorEntity):
     """Representation of a ViCare sensor."""
 
     def __init__(self, name, api, sensor_type):
@@ -91,7 +99,7 @@ class ViCareBinarySensor(BinarySensorDevice):
     @property
     def available(self):
         """Return True if entity is available."""
-        return self._state is not None and self._state != PYVICARE_ERROR
+        return self._state is not None
 
     @property
     def unique_id(self):
@@ -116,8 +124,11 @@ class ViCareBinarySensor(BinarySensorDevice):
     def update(self):
         """Update state of sensor."""
         try:
-            self._state = self._sensor[CONF_GETTER](self._api)
+            with suppress(PyViCareNotSupportedFeatureError):
+                self._state = self._sensor[CONF_GETTER](self._api)
         except requests.exceptions.ConnectionError:
             _LOGGER.error("Unable to retrieve data from ViCare server")
         except ValueError:
             _LOGGER.error("Unable to decode data from ViCare server")
+        except PyViCareRateLimitError as limit_exception:
+            _LOGGER.error("Vicare API rate limit exceeded: %s", limit_exception)
