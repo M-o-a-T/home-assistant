@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 import aiohttp
 import pytest
 
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import homeassistant.util.location as location_util
 
 from tests.common import load_fixture
@@ -27,16 +28,16 @@ DISTANCE_MILES = 3632.78
 @pytest.fixture
 async def session(hass):
     """Return aioclient session."""
-    return hass.helpers.aiohttp_client.async_get_clientsession()
+    return async_get_clientsession(hass)
 
 
 @pytest.fixture
-async def raising_session(loop):
+async def raising_session(event_loop):
     """Return an aioclient session that only fails."""
     return Mock(get=Mock(side_effect=aiohttp.ClientError))
 
 
-def test_get_distance_to_same_place():
+def test_get_distance_to_same_place() -> None:
     """Test getting the distance."""
     meters = location_util.distance(
         COORDINATES_PARIS[0],
@@ -48,7 +49,7 @@ def test_get_distance_to_same_place():
     assert meters == 0
 
 
-def test_get_distance():
+def test_get_distance() -> None:
     """Test getting the distance."""
     meters = location_util.distance(
         COORDINATES_PARIS[0],
@@ -60,20 +61,20 @@ def test_get_distance():
     assert meters / 1000 - DISTANCE_KM < 0.01
 
 
-def test_get_kilometers():
+def test_get_kilometers() -> None:
     """Test getting the distance between given coordinates in km."""
     kilometers = location_util.vincenty(COORDINATES_PARIS, COORDINATES_NEW_YORK)
     assert round(kilometers, 2) == DISTANCE_KM
 
 
-def test_get_miles():
+def test_get_miles() -> None:
     """Test getting the distance between given coordinates in miles."""
     miles = location_util.vincenty(COORDINATES_PARIS, COORDINATES_NEW_YORK, miles=True)
     assert round(miles, 2) == DISTANCE_MILES
 
 
 async def test_detect_location_info_whoami(aioclient_mock, session):
-    """Test detect location info using whoami.home-assistant.io."""
+    """Test detect location info using services.home-assistant.io/whoami."""
     aioclient_mock.get(location_util.WHOAMI_URL, text=load_fixture("whoami.json"))
 
     with patch("homeassistant.util.location.HA_VERSION", "1.0"):

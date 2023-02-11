@@ -51,8 +51,7 @@ async def async_setup_entry(
 
 
 class BuienradarCam(Camera):
-    """
-    A camera component producing animated buienradar radar-imagery GIFs.
+    """A camera component producing animated buienradar radar-imagery GIFs.
 
     Rain radar imagery camera based on image URL taken from [0].
 
@@ -62,8 +61,7 @@ class BuienradarCam(Camera):
     def __init__(
         self, latitude: float, longitude: float, delta: float, country: str
     ) -> None:
-        """
-        Initialize the component.
+        """Initialize the component.
 
         This constructor must be run in the event loop.
         """
@@ -131,8 +129,7 @@ class BuienradarCam(Camera):
                     _LOGGER.debug("HTTP 304 - success")
                     return True
 
-                last_modified = res.headers.get("Last-Modified")
-                if last_modified:
+                if last_modified := res.headers.get("Last-Modified"):
                     self._last_modified = last_modified
 
                 self._last_image = await res.read()
@@ -143,11 +140,12 @@ class BuienradarCam(Camera):
             _LOGGER.error("Failed to fetch image, %s", type(err))
             return False
 
-    async def async_camera_image(self) -> bytes | None:
-        """
-        Return a still image response from the camera.
+    async def async_camera_image(
+        self, width: int | None = None, height: int | None = None
+    ) -> bytes | None:
+        """Return a still image response from the camera.
 
-        Uses ayncio conditions to make sure only one task enters the critical
+        Uses asyncio conditions to make sure only one task enters the critical
         section at the same time. Otherwise, two http requests would start
         when two tabs with Home Assistant are open.
 
@@ -167,7 +165,7 @@ class BuienradarCam(Camera):
 
         # get lock, check iff loading, await notification if loading
         async with self._condition:
-            # can not be tested - mocked http response returns immediately
+            # cannot be tested - mocked http response returns immediately
             if self._loading:
                 _LOGGER.debug("already loading - waiting for notification")
                 await self._condition.wait()

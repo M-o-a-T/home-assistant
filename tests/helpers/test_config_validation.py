@@ -11,10 +11,11 @@ import pytest
 import voluptuous as vol
 
 import homeassistant
-from homeassistant.helpers import config_validation as cv, template
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv, selector, template
 
 
-def test_boolean():
+def test_boolean() -> None:
     """Test boolean validation."""
     schema = vol.Schema(cv.boolean)
 
@@ -39,7 +40,7 @@ def test_boolean():
         assert not schema(value)
 
 
-def test_latitude():
+def test_latitude() -> None:
     """Test latitude validation."""
     schema = vol.Schema(cv.latitude)
 
@@ -51,7 +52,7 @@ def test_latitude():
         schema(value)
 
 
-def test_longitude():
+def test_longitude() -> None:
     """Test longitude validation."""
     schema = vol.Schema(cv.longitude)
 
@@ -63,7 +64,7 @@ def test_longitude():
         schema(value)
 
 
-def test_port():
+def test_port() -> None:
     """Test TCP/UDP network port."""
     schema = vol.Schema(cv.port)
 
@@ -75,7 +76,7 @@ def test_port():
         schema(value)
 
 
-def test_isfile():
+def test_isfile() -> None:
     """Validate that the value is an existing file."""
     schema = vol.Schema(cv.isfile)
 
@@ -94,7 +95,7 @@ def test_isfile():
         schema("test.txt")
 
 
-def test_url():
+def test_url() -> None:
     """Test URL."""
     schema = vol.Schema(cv.url)
 
@@ -120,7 +121,26 @@ def test_url():
         assert schema(value)
 
 
-def test_platform_config():
+def test_url_no_path() -> None:
+    """Test URL."""
+    schema = vol.Schema(cv.url_no_path)
+
+    for value in (
+        "https://localhost/test/index.html",
+        "http://home-assistant.io/test/",
+    ):
+        with pytest.raises(vol.MultipleInvalid):
+            schema(value)
+
+    for value in (
+        "http://localhost",
+        "http://home-assistant.io",
+        "https://community.home-assistant.io/",
+    ):
+        assert schema(value)
+
+
+def test_platform_config() -> None:
     """Test platform config validation."""
     options = ({}, {"hello": "world"})
     for value in options:
@@ -132,7 +152,7 @@ def test_platform_config():
         cv.PLATFORM_SCHEMA_BASE(value)
 
 
-def test_ensure_list():
+def test_ensure_list() -> None:
     """Test ensure_list."""
     schema = vol.Schema(cv.ensure_list)
     assert [] == schema(None)
@@ -143,7 +163,7 @@ def test_ensure_list():
     assert [{"1": "2"}] == schema({"1": "2"})
 
 
-def test_entity_id():
+def test_entity_id() -> None:
     """Test entity ID validation."""
     schema = vol.Schema(cv.entity_id)
 
@@ -153,9 +173,10 @@ def test_entity_id():
     assert schema("sensor.LIGHT") == "sensor.light"
 
 
-def test_entity_ids():
+@pytest.mark.parametrize("validator", [cv.entity_ids, cv.entity_ids_or_uuids])
+def test_entity_ids(validator):
     """Test entity ID validation."""
-    schema = vol.Schema(cv.entity_ids)
+    schema = vol.Schema(validator)
 
     options = (
         "invalid_entity",
@@ -175,7 +196,33 @@ def test_entity_ids():
     assert schema("sensor.LIGHT, light.kitchen ") == ["sensor.light", "light.kitchen"]
 
 
-def test_entity_domain():
+def test_entity_ids_or_uuids() -> None:
+    """Test entity ID validation."""
+    schema = vol.Schema(cv.entity_ids_or_uuids)
+
+    valid_uuid = "a266a680b608c32770e6c45bfe6b8411"
+    valid_uuid2 = "a266a680b608c32770e6c45bfe6b8412"
+    invalid_uuid_capital_letters = "A266A680B608C32770E6C45bfE6B8412"
+    options = (
+        "invalid_uuid",
+        invalid_uuid_capital_letters,
+        f"{valid_uuid},invalid_uuid",
+        ["invalid_uuid"],
+        [valid_uuid, "invalid_uuid"],
+        [f"{valid_uuid},invalid_uuid"],
+    )
+    for value in options:
+        with pytest.raises(vol.MultipleInvalid):
+            schema(value)
+
+    options = ([], [valid_uuid], valid_uuid)
+    for value in options:
+        schema(value)
+
+    assert schema(f"{valid_uuid}, {valid_uuid2} ") == [valid_uuid, valid_uuid2]
+
+
+def test_entity_domain() -> None:
     """Test entity domain validation."""
     schema = vol.Schema(cv.entity_domain("sensor"))
 
@@ -200,7 +247,7 @@ def test_entity_domain():
     assert schema("binary_sensor.LIGHT") == "binary_sensor.light"
 
 
-def test_entities_domain():
+def test_entities_domain() -> None:
     """Test entities domain validation."""
     schema = vol.Schema(cv.entities_domain("sensor"))
 
@@ -224,7 +271,7 @@ def test_entities_domain():
     assert schema(["sensor.light", "SENSOR.demo"]) == ["sensor.light", "sensor.demo"]
 
 
-def test_ensure_list_csv():
+def test_ensure_list_csv() -> None:
     """Test ensure_list_csv."""
     schema = vol.Schema(cv.ensure_list_csv)
 
@@ -235,7 +282,7 @@ def test_ensure_list_csv():
     assert schema("string1, string2 ") == ["string1", "string2"]
 
 
-def test_event_schema():
+def test_event_schema() -> None:
     """Test event_schema validation."""
     options = (
         {},
@@ -255,7 +302,7 @@ def test_event_schema():
         cv.EVENT_SCHEMA(value)
 
 
-def test_icon():
+def test_icon() -> None:
     """Test icon validation."""
     schema = vol.Schema(cv.icon)
 
@@ -267,7 +314,7 @@ def test_icon():
     schema("custom:prefix")
 
 
-def test_time_period():
+def test_time_period() -> None:
     """Test time_period validation."""
     schema = vol.Schema(cv.time_period)
 
@@ -316,12 +363,12 @@ def test_time_period():
         assert schema(value) == result
 
 
-def test_remove_falsy():
+def test_remove_falsy() -> None:
     """Test remove falsy."""
     assert cv.remove_falsy([0, None, 1, "1", {}, [], ""]) == [1, "1"]
 
 
-def test_service():
+def test_service() -> None:
     """Test service validation."""
     schema = vol.Schema(cv.service)
 
@@ -331,7 +378,7 @@ def test_service():
     schema("homeassistant.turn_on")
 
 
-def test_service_schema():
+def test_service_schema() -> None:
     """Test service_schema validation."""
     options = (
         {},
@@ -364,12 +411,72 @@ def test_service_schema():
             "entity_id": "all",
             "alias": "turn on kitchen lights",
         },
+        {"service": "scene.turn_on", "metadata": {}},
     )
     for value in options:
         cv.SERVICE_SCHEMA(value)
 
+    # Check metadata is removed from the validated output
+    assert cv.SERVICE_SCHEMA({"service": "scene.turn_on", "metadata": {}}) == {
+        "service": "scene.turn_on"
+    }
 
-def test_slug():
+
+def test_entity_service_schema() -> None:
+    """Test make_entity_service_schema validation."""
+    schema = cv.make_entity_service_schema(
+        {vol.Required("required"): cv.positive_int, vol.Optional("optional"): cv.string}
+    )
+
+    options = (
+        {},
+        None,
+        {"entity_id": "light.kitchen"},
+        {"optional": "value", "entity_id": "light.kitchen"},
+        {"required": 1},
+        {"required": 2, "area_id": "kitchen", "foo": "bar"},
+        {"required": "str", "area_id": "kitchen"},
+    )
+    for value in options:
+        with pytest.raises(vol.MultipleInvalid):
+            cv.SERVICE_SCHEMA(value)
+
+    options = (
+        {"required": 1, "entity_id": "light.kitchen"},
+        {"required": 2, "optional": "value", "device_id": "a_device"},
+        {"required": 3, "area_id": "kitchen"},
+    )
+    for value in options:
+        schema(value)
+
+    options = (
+        {
+            "required": 1,
+            "entity_id": "light.kitchen",
+            "metadata": {"some": "frontend_stuff"},
+        },
+    )
+    for value in options:
+        validated = schema(value)
+        assert "metadata" not in validated
+
+
+def test_entity_service_schema_with_metadata() -> None:
+    """Test make_entity_service_schema with overridden metadata key."""
+    schema = cv.make_entity_service_schema({vol.Required("metadata"): cv.positive_int})
+
+    options = ({"metadata": {"some": "frontend_stuff"}, "entity_id": "light.kitchen"},)
+    for value in options:
+        with pytest.raises(vol.MultipleInvalid):
+            cv.SERVICE_SCHEMA(value)
+
+    options = ({"metadata": 1, "entity_id": "light.kitchen"},)
+    for value in options:
+        validated = schema(value)
+        assert "metadata" in validated
+
+
+def test_slug() -> None:
     """Test slug validation."""
     schema = vol.Schema(cv.slug)
 
@@ -381,7 +488,7 @@ def test_slug():
         schema(value)
 
 
-def test_string(hass):
+def test_string(hass: HomeAssistant) -> None:
     """Test string validation."""
     schema = vol.Schema(cv.string)
 
@@ -411,7 +518,7 @@ def test_string(hass):
         assert schema(result) == text
 
 
-def test_string_with_no_html():
+def test_string_with_no_html() -> None:
     """Test string with no html validation."""
     schema = vol.Schema(cv.string_with_no_html)
 
@@ -431,7 +538,7 @@ def test_string_with_no_html():
         schema(value)
 
 
-def test_temperature_unit():
+def test_temperature_unit() -> None:
     """Test temperature unit validation."""
     schema = vol.Schema(cv.temperature_unit)
 
@@ -442,7 +549,7 @@ def test_temperature_unit():
     schema("F")
 
 
-def test_x10_address():
+def test_x10_address() -> None:
     """Test x10 addr validator."""
     schema = vol.Schema(cv.x10_address)
     with pytest.raises(vol.Invalid):
@@ -454,7 +561,7 @@ def test_x10_address():
     schema("C11")
 
 
-def test_template():
+def test_template() -> None:
     """Test template validator."""
     schema = vol.Schema(cv.template)
 
@@ -472,7 +579,7 @@ def test_template():
         schema(value)
 
 
-def test_dynamic_template():
+def test_dynamic_template() -> None:
     """Test dynamic template validator."""
     schema = vol.Schema(cv.dynamic_template)
 
@@ -495,7 +602,7 @@ def test_dynamic_template():
         schema(value)
 
 
-def test_template_complex():
+def test_template_complex() -> None:
     """Test template_complex validator."""
     schema = vol.Schema(cv.template_complex)
 
@@ -529,7 +636,7 @@ def test_template_complex():
         assert schema(value) == value
 
 
-def test_time_zone():
+def test_time_zone() -> None:
     """Test time zone validation."""
     schema = vol.Schema(cv.time_zone)
 
@@ -540,7 +647,7 @@ def test_time_zone():
     schema("UTC")
 
 
-def test_date():
+def test_date() -> None:
     """Test date validation."""
     schema = vol.Schema(cv.date)
 
@@ -552,7 +659,7 @@ def test_date():
     schema("2016-11-23")
 
 
-def test_time():
+def test_time() -> None:
     """Test date validation."""
     schema = vol.Schema(cv.time)
 
@@ -565,7 +672,7 @@ def test_time():
     schema("23:42")
 
 
-def test_datetime():
+def test_datetime() -> None:
     """Test date time validation."""
     schema = vol.Schema(cv.datetime)
     for value in [date.today(), "Wrong DateTime"]:
@@ -576,7 +683,7 @@ def test_datetime():
     schema("2016-11-23T18:59:08")
 
 
-def test_multi_select():
+def test_multi_select() -> None:
     """Test multi select validation.
 
     Expected behavior:
@@ -592,7 +699,7 @@ def test_multi_select():
     schema(["robban", "paulus"])
 
 
-def test_multi_select_in_serializer():
+def test_multi_select_in_serializer() -> None:
     """Test multi_select with custom_serializer."""
     assert cv.custom_serializer(cv.multi_select({"paulus": "Paulus"})) == {
         "type": "multi_select",
@@ -600,21 +707,32 @@ def test_multi_select_in_serializer():
     }
 
 
-def test_boolean_in_serializer():
+def test_boolean_in_serializer() -> None:
     """Test boolean with custom_serializer."""
     assert cv.custom_serializer(cv.boolean) == {
         "type": "boolean",
     }
 
 
-def test_string_in_serializer():
+def test_string_in_serializer() -> None:
     """Test string with custom_serializer."""
     assert cv.custom_serializer(cv.string) == {
         "type": "string",
     }
 
 
-def test_positive_time_period_dict_in_serializer():
+def test_selector_in_serializer() -> None:
+    """Test selector with custom_serializer."""
+    assert cv.custom_serializer(selector.selector({"text": {}})) == {
+        "selector": {
+            "text": {
+                "multiline": False,
+            }
+        }
+    }
+
+
+def test_positive_time_period_dict_in_serializer() -> None:
     """Test positive_time_period_dict with custom_serializer."""
     assert cv.custom_serializer(cv.positive_time_period_dict) == {
         "type": "positive_time_period_dict",
@@ -634,8 +752,7 @@ def version(monkeypatch):
 
 
 def test_deprecated_with_no_optionals(caplog, schema):
-    """
-    Test deprecation behaves correctly when optional params are None.
+    """Test deprecation behaves correctly when optional params are None.
 
     Expected behavior:
         - Outputs the appropriate deprecation warning if key is detected
@@ -665,9 +782,47 @@ def test_deprecated_with_no_optionals(caplog, schema):
     assert test_data == output
 
 
-def test_deprecated_with_replacement_key(caplog, schema):
+def test_deprecated_or_removed_param_and_raise(caplog, schema):
+    """Test removed or deprecation options and fail the config validation by raising an exception.
+
+    Expected behavior:
+        - Outputs the appropriate deprecation or removed from support error if key is detected
     """
-    Test deprecation behaves correctly when only a replacement key is provided.
+    removed_schema = vol.All(cv.deprecated("mars", raise_if_present=True), schema)
+
+    test_data = {"mars": True}
+    with pytest.raises(vol.Invalid) as excinfo:
+        removed_schema(test_data)
+    assert (
+        "The 'mars' option is deprecated, please remove it from your configuration"
+        in str(excinfo.value)
+    )
+    assert len(caplog.records) == 0
+
+    test_data = {"venus": True}
+    output = removed_schema(test_data.copy())
+    assert len(caplog.records) == 0
+    assert test_data == output
+
+    deprecated_schema = vol.All(cv.removed("mars"), schema)
+
+    test_data = {"mars": True}
+    with pytest.raises(vol.Invalid) as excinfo:
+        deprecated_schema(test_data)
+    assert (
+        "The 'mars' option has been removed, please remove it from your configuration"
+        in str(excinfo.value)
+    )
+    assert len(caplog.records) == 0
+
+    test_data = {"venus": True}
+    output = deprecated_schema(test_data.copy())
+    assert len(caplog.records) == 0
+    assert test_data == output
+
+
+def test_deprecated_with_replacement_key(caplog, schema):
+    """Test deprecation behaves correctly when only a replacement key is provided.
 
     Expected behavior:
         - Outputs the appropriate deprecation warning if key is detected
@@ -704,8 +859,7 @@ def test_deprecated_with_replacement_key(caplog, schema):
 
 
 def test_deprecated_with_default(caplog, schema):
-    """
-    Test deprecation behaves correctly with a default value.
+    """Test deprecation behaves correctly with a default value.
 
     This is likely a scenario that would never occur.
 
@@ -733,8 +887,7 @@ def test_deprecated_with_default(caplog, schema):
 
 
 def test_deprecated_with_replacement_key_and_default(caplog, schema):
-    """
-    Test deprecation with a replacement key and default.
+    """Test deprecation with a replacement key and default.
 
     Expected behavior:
         - Outputs the appropriate deprecation warning if key is detected
@@ -789,7 +942,7 @@ def test_deprecated_with_replacement_key_and_default(caplog, schema):
     assert {"jupiter": True} == output
 
 
-def test_deprecated_cant_find_module():
+def test_deprecated_cant_find_module() -> None:
     """Test if the current module cannot be inspected."""
     with patch("inspect.getmodule", return_value=None):
         # This used to raise.
@@ -799,17 +952,43 @@ def test_deprecated_cant_find_module():
             default=False,
         )
 
+    with patch("inspect.getmodule", return_value=None):
+        # This used to raise.
+        cv.removed(
+            "mars",
+            default=False,
+        )
 
-def test_deprecated_logger_with_config_attributes(caplog):
+
+def test_deprecated_or_removed_logger_with_config_attributes(caplog):
     """Test if the logger outputs the correct message if the line and file attribute is available in config."""
     file: str = "configuration.yaml"
     line: int = 54
-    replacement = f"'mars' option near {file}:{line} is deprecated"
+
+    # test as deprecated option
+    replacement_key = "jupiter"
+    option_status = "is deprecated"
+    replacement = f"'mars' option near {file}:{line} {option_status}, please replace it with '{replacement_key}'"
     config = OrderedDict([("mars", "blah")])
     setattr(config, "__config_file__", file)
     setattr(config, "__line__", line)
 
-    cv.deprecated("mars", replacement_key="jupiter", default=False)(config)
+    cv.deprecated("mars", replacement_key=replacement_key, default=False)(config)
+
+    assert len(caplog.records) == 1
+    assert replacement in caplog.text
+
+    caplog.clear()
+    assert len(caplog.records) == 0
+
+    # test as removed option
+    option_status = "has been removed"
+    replacement = f"'mars' option near {file}:{line} {option_status}, please remove it from your configuration"
+    config = OrderedDict([("mars", "blah")])
+    setattr(config, "__config_file__", file)
+    setattr(config, "__line__", line)
+
+    cv.removed("mars", default=False, raise_if_present=False)(config)
 
     assert len(caplog.records) == 1
     assert replacement in caplog.text
@@ -871,7 +1050,7 @@ def test_deprecated_logger_without_config_attributes(caplog):
     assert len(caplog.records) == 0
 
 
-def test_key_dependency():
+def test_key_dependency() -> None:
     """Test key_dependency validator."""
     schema = vol.Schema(cv.key_dependency("beer", "soda"))
 
@@ -885,7 +1064,7 @@ def test_key_dependency():
         schema(value)
 
 
-def test_has_at_most_one_key():
+def test_has_at_most_one_key() -> None:
     """Test has_at_most_one_key validator."""
     schema = vol.Schema(cv.has_at_most_one_key("beer", "soda"))
 
@@ -893,11 +1072,11 @@ def test_has_at_most_one_key():
         with pytest.raises(vol.MultipleInvalid):
             schema(value)
 
-    for value in ({}, {"beer": None}, {"soda": None}):
+    for value in ({}, {"beer": None}, {"soda": None}, {vol.Optional("soda"): None}):
         schema(value)
 
 
-def test_has_at_least_one_key():
+def test_has_at_least_one_key() -> None:
     """Test has_at_least_one_key validator."""
     schema = vol.Schema(cv.has_at_least_one_key("beer", "soda"))
 
@@ -905,11 +1084,11 @@ def test_has_at_least_one_key():
         with pytest.raises(vol.MultipleInvalid):
             schema(value)
 
-    for value in ({"beer": None}, {"soda": None}):
+    for value in ({"beer": None}, {"soda": None}, {vol.Required("soda"): None}):
         schema(value)
 
 
-def test_enum():
+def test_enum() -> None:
     """Test enum validator."""
 
     class TestEnum(enum.Enum):
@@ -939,7 +1118,7 @@ def test_socket_timeout():  # pylint: disable=invalid-name
     assert schema(1) == 1.0
 
 
-def test_matches_regex():
+def test_matches_regex() -> None:
     """Test matches_regex validator."""
     schema = vol.Schema(cv.matches_regex(".*uiae.*"))
 
@@ -953,7 +1132,7 @@ def test_matches_regex():
     assert schema(test_str) == test_str
 
 
-def test_is_regex():
+def test_is_regex() -> None:
     """Test the is_regex validator."""
     schema = vol.Schema(cv.is_regex)
 
@@ -967,7 +1146,7 @@ def test_is_regex():
     schema(valid_re)
 
 
-def test_comp_entity_ids():
+def test_comp_entity_ids() -> None:
     """Test config validation for component entity IDs."""
     schema = vol.Schema(cv.comp_entity_ids)
 
@@ -1008,7 +1187,7 @@ def test_uuid4_hex(caplog):
     assert schema(_hex.upper()) == _hex
 
 
-def test_key_value_schemas():
+def test_key_value_schemas() -> None:
     """Test key value schemas."""
     schema = vol.Schema(
         cv.key_value_schemas(
@@ -1044,12 +1223,61 @@ def test_key_value_schemas():
         schema({"mode": mode, "data": data})
 
 
+def test_key_value_schemas_with_default() -> None:
+    """Test key value schemas."""
+    schema = vol.Schema(
+        cv.key_value_schemas(
+            "mode",
+            {
+                "number": vol.Schema({"mode": "number", "data": int}),
+                "string": vol.Schema({"mode": "string", "data": str}),
+            },
+            vol.Schema({"mode": cv.dynamic_template}),
+            "a cool template",
+        )
+    )
+
+    with pytest.raises(vol.Invalid) as excinfo:
+        schema(True)
+        assert str(excinfo.value) == "Expected a dictionary"
+
+    for mode in None, {"a": "dict"}, "invalid":
+        with pytest.raises(vol.Invalid) as excinfo:
+            schema({"mode": mode})
+        assert (
+            str(excinfo.value)
+            == f"Unexpected value for mode: '{mode}'. Expected number, string, a cool template"
+        )
+
+    with pytest.raises(vol.Invalid) as excinfo:
+        schema({"mode": "number", "data": "string-value"})
+    assert str(excinfo.value) == "expected int for dictionary value @ data['data']"
+
+    with pytest.raises(vol.Invalid) as excinfo:
+        schema({"mode": "string", "data": 1})
+    assert str(excinfo.value) == "expected str for dictionary value @ data['data']"
+
+    for mode, data in (("number", 1), ("string", "hello")):
+        schema({"mode": mode, "data": data})
+    schema({"mode": "{{ 1 + 1}}"})
+
+
 def test_script(caplog):
     """Test script validation is user friendly."""
     for data, msg in (
         ({"delay": "{{ invalid"}, "should be format 'HH:MM'"),
         ({"wait_template": "{{ invalid"}, "invalid template"),
         ({"condition": "invalid"}, "Unexpected value for condition: 'invalid'"),
+        (
+            {"condition": "not", "conditions": {"condition": "invalid"}},
+            "Unexpected value for condition: 'invalid'",
+        ),
+        # The validation error message could be improved to explain that this is not
+        # a valid shorthand template
+        (
+            {"condition": "not", "conditions": "not a dynamic template"},
+            "Expected a dictionary",
+        ),
         ({"event": None}, "string value is None for dictionary value @ data['event']"),
         (
             {"device_id": None},
@@ -1066,7 +1294,7 @@ def test_script(caplog):
         assert msg in str(excinfo.value)
 
 
-def test_whitespace():
+def test_whitespace() -> None:
     """Test whitespace validation."""
     schema = vol.Schema(cv.whitespace)
 
@@ -1087,7 +1315,7 @@ def test_whitespace():
         assert schema(value)
 
 
-def test_currency():
+def test_currency() -> None:
     """Test currency validator."""
     schema = vol.Schema(cv.currency)
 
@@ -1099,4 +1327,40 @@ def test_currency():
             schema(value)
 
     for value in ("EUR", "USD"):
+        assert schema(value)
+
+
+def test_historic_currency() -> None:
+    """Test historic currency validator."""
+    schema = vol.Schema(cv.historic_currency)
+
+    for value in (None, "BTC", "EUR"):
+        with pytest.raises(vol.MultipleInvalid):
+            schema(value)
+
+    for value in ("DEM", "NLG"):
+        assert schema(value)
+
+
+def test_country() -> None:
+    """Test country validator."""
+    schema = vol.Schema(cv.country)
+
+    for value in (None, "Candyland", "USA"):
+        with pytest.raises(vol.MultipleInvalid):
+            schema(value)
+
+    for value in ("NL", "SE"):
+        assert schema(value)
+
+
+def test_language() -> None:
+    """Test language validator."""
+    schema = vol.Schema(cv.language)
+
+    for value in (None, "Klingon", "english"):
+        with pytest.raises(vol.MultipleInvalid):
+            schema(value)
+
+    for value in ("en", "sv"):
         assert schema(value)

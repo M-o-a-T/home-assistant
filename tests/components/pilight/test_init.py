@@ -7,6 +7,7 @@ from unittest.mock import patch
 from voluptuous import MultipleInvalid
 
 from homeassistant.components import pilight
+from homeassistant.core import HomeAssistant
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
 
@@ -36,7 +37,7 @@ class PilightDaemonSim:
     def __init__(self, host, port):
         """Init pilight client, ignore parameters."""
 
-    def send_code(self, call):  # pylint: disable=no-self-use
+    def send_code(self, call):
         """Handle pilight.send service callback."""
         _LOGGER.error("PilightDaemonSim payload: %s", call)
 
@@ -51,7 +52,7 @@ class PilightDaemonSim:
             self.callback(self.test_message)
             self.called = True
 
-    def stop(self):  # pylint: disable=no-self-use
+    def stop(self):
         """Handle homeassistant.stop callback."""
         _LOGGER.error("PilightDaemonSim stop")
 
@@ -92,7 +93,7 @@ async def test_connection_timeout_error(mock_error, hass):
 
 
 @patch("pilight.pilight.Client", PilightDaemonSim)
-async def test_send_code_no_protocol(hass):
+async def test_send_code_no_protocol(hass: HomeAssistant) -> None:
     """Try to send data without protocol information, should give error."""
     with assert_setup_component(4):
         assert await async_setup_component(hass, pilight.DOMAIN, {pilight.DOMAIN: {}})
@@ -364,7 +365,7 @@ async def test_whitelist_no_match(mock_debug, hass):
         assert "Event pilight_received" not in debug_log_call
 
 
-async def test_call_rate_delay_throttle_enabled(hass):
+async def test_call_rate_delay_throttle_enabled(hass: HomeAssistant) -> None:
     """Test that throttling actually work."""
     runs = []
     delay = 5.0
@@ -388,7 +389,7 @@ async def test_call_rate_delay_throttle_enabled(hass):
         assert runs == exp
 
 
-def test_call_rate_delay_throttle_disabled(hass):
+def test_call_rate_delay_throttle_disabled(hass: HomeAssistant) -> None:
     """Test that the limiter is a noop if no delay set."""
     runs = []
 

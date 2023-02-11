@@ -1,12 +1,14 @@
 """Test different accessory types: Camera."""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 from uuid import UUID
 
-from pyhap.accessory_driver import AccessoryDriver
 import pytest
 
 from homeassistant.components import camera, ffmpeg
+from homeassistant.components.binary_sensor import BinarySensorDeviceClass
+from homeassistant.components.camera.img_util import TurboJPEGSingleton
 from homeassistant.components.homekit.accessories import HomeBridge
 from homeassistant.components.homekit.const import (
     AUDIO_CODEC_COPY,
@@ -18,22 +20,19 @@ from homeassistant.components.homekit.const import (
     CONF_STREAM_SOURCE,
     CONF_SUPPORT_AUDIO,
     CONF_VIDEO_CODEC,
-    DEVICE_CLASS_MOTION,
-    DEVICE_CLASS_OCCUPANCY,
     SERV_DOORBELL,
     SERV_MOTION_SENSOR,
     SERV_STATELESS_PROGRAMMABLE_SWITCH,
     VIDEO_CODEC_COPY,
     VIDEO_CODEC_H264_OMX,
 )
-from homeassistant.components.homekit.img_util import TurboJPEGSingleton
 from homeassistant.components.homekit.type_cameras import Camera
 from homeassistant.components.homekit.type_switches import Switch
 from homeassistant.const import ATTR_DEVICE_CLASS, STATE_OFF, STATE_ON
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.setup import async_setup_component
 
-from .common import mock_turbo_jpeg
+from tests.components.camera.common import mock_turbo_jpeg
 
 MOCK_START_STREAM_TLV = "ARUCAQEBEDMD1QMXzEaatnKSQ2pxovYCNAEBAAIJAQECAgECAwEAAwsBAgAFAgLQAgMBHgQXAQFjAgQ768/RAwIrAQQEAAAAPwUCYgUDLAEBAwIMAQEBAgEAAwECBAEUAxYBAW4CBCzq28sDAhgABAQAAKBABgENBAEA"
 MOCK_END_POINTS_TLV = "ARAzA9UDF8xGmrZykkNqcaL2AgEAAxoBAQACDTE5Mi4xNjguMjA4LjUDAi7IBAKkxwQlAQEAAhDN0+Y0tZ4jzoO0ske9UsjpAw6D76oVXnoi7DbawIG4CwUlAQEAAhCyGcROB8P7vFRDzNF2xrK1Aw6NdcLugju9yCfkWVSaVAYEDoAsAAcEpxV8AA=="
@@ -45,6 +44,7 @@ PID_THAT_WILL_NEVER_BE_ALIVE = 2147483647
 async def _async_start_streaming(hass, acc):
     """Start streaming a camera."""
     acc.set_selected_stream_configuration(MOCK_START_STREAM_TLV)
+    await hass.async_block_till_done()
     await acc.run()
     await hass.async_block_till_done()
 
@@ -77,19 +77,16 @@ async def _async_stop_stream(hass, acc, session_info):
     await hass.async_block_till_done()
 
 
-@pytest.fixture()
-def run_driver(hass):
-    """Return a custom AccessoryDriver instance for HomeKit accessory init."""
-    with patch("pyhap.accessory_driver.AsyncZeroconf"), patch(
-        "pyhap.accessory_driver.AccessoryEncoder"
-    ), patch("pyhap.accessory_driver.HAPServer"), patch(
-        "pyhap.accessory_driver.AccessoryDriver.publish"
-    ), patch(
-        "pyhap.accessory_driver.AccessoryDriver.persist"
-    ):
-        yield AccessoryDriver(
-            pincode=b"123-45-678", address="127.0.0.1", loop=hass.loop
-        )
+def _mock_reader():
+    """Mock ffmpeg reader."""
+
+    async def _readline(*args, **kwargs):
+        await asyncio.sleep(0.1)
+
+    async def _get_reader(*args, **kwargs):
+        return AsyncMock(readline=_readline)
+
+    return _get_reader
 
 
 def _get_exits_after_startup_mock_ffmpeg():
@@ -99,7 +96,7 @@ def _get_exits_after_startup_mock_ffmpeg():
     ffmpeg.open = AsyncMock(return_value=True)
     ffmpeg.close = AsyncMock(return_value=True)
     ffmpeg.kill = AsyncMock(return_value=True)
-    ffmpeg.get_reader = AsyncMock()
+    ffmpeg.get_reader = _mock_reader()
     return ffmpeg
 
 
@@ -109,7 +106,7 @@ def _get_working_mock_ffmpeg():
     ffmpeg.open = AsyncMock(return_value=True)
     ffmpeg.close = AsyncMock(return_value=True)
     ffmpeg.kill = AsyncMock(return_value=True)
-    ffmpeg.get_reader = AsyncMock()
+    ffmpeg.get_reader = _mock_reader()
     return ffmpeg
 
 
@@ -120,7 +117,7 @@ def _get_failing_mock_ffmpeg():
     ffmpeg.open = AsyncMock(return_value=False)
     ffmpeg.close = AsyncMock(side_effect=OSError)
     ffmpeg.kill = AsyncMock(side_effect=OSError)
-    ffmpeg.get_reader = AsyncMock()
+    ffmpeg.get_reader = _mock_reader()
     return ffmpeg
 
 
@@ -317,28 +314,58 @@ async def test_camera_stream_source_found(hass, run_driver, events):
     assert acc.category == 17  # Camera
 
     await _async_setup_endpoints(hass, acc)
+    working_ffmpeg = _get_working_mock_ffmpeg()
+    session_info = acc.sessions[MOCK_START_STREAM_SESSION_UUID]
 
     with patch(
         "homeassistant.components.demo.camera.DemoCamera.stream_source",
         return_value="rtsp://example.local",
     ), patch(
         "homeassistant.components.homekit.type_cameras.HAFFmpeg",
-        return_value=_get_working_mock_ffmpeg(),
+        return_value=working_ffmpeg,
     ):
         await _async_start_streaming(hass, acc)
         await _async_stop_all_streams(hass, acc)
+
+    expected_output = (
+        "-map 0:v:0 -an -c:v libx264 -profile:v high -tune zerolatency -pix_fmt "
+        "yuv420p -r 30 -b:v 299k -bufsize 1196k -maxrate 299k -payload_type 99 -ssrc {v_ssrc} -f "
+        "rtp -srtp_out_suite AES_CM_128_HMAC_SHA1_80 -srtp_out_params "
+        "zdPmNLWeI86DtLJHvVLI6YPvqhVeeiLsNtrAgbgL "
+        "srtp://192.168.208.5:51246?rtcpport=51246&localrtcpport=51246&pkt_size=1316"
+    )
+
+    working_ffmpeg.open.assert_called_with(
+        cmd=[],
+        input_source="-i rtsp://example.local",
+        output=expected_output.format(**session_info),
+        stdout_pipe=False,
+        extra_cmd="-hide_banner -nostats",
+        stderr_pipe=True,
+    )
 
     await _async_setup_endpoints(hass, acc)
+    working_ffmpeg = _get_working_mock_ffmpeg()
+    session_info = acc.sessions[MOCK_START_STREAM_SESSION_UUID]
 
     with patch(
         "homeassistant.components.demo.camera.DemoCamera.stream_source",
-        return_value="rtsp://example.local",
+        return_value="rtsp://example2.local",
     ), patch(
         "homeassistant.components.homekit.type_cameras.HAFFmpeg",
-        return_value=_get_working_mock_ffmpeg(),
+        return_value=working_ffmpeg,
     ):
         await _async_start_streaming(hass, acc)
         await _async_stop_all_streams(hass, acc)
+
+    working_ffmpeg.open.assert_called_with(
+        cmd=[],
+        input_source="-i rtsp://example2.local",
+        output=expected_output.format(**session_info),
+        stdout_pipe=False,
+        extra_cmd="-hide_banner -nostats",
+        stderr_pipe=True,
+    )
 
 
 async def test_camera_stream_source_fails(hass, run_driver, events):
@@ -458,7 +485,6 @@ async def test_camera_stream_source_configured_and_copy_codec(hass, run_driver, 
     ):
         await _async_start_streaming(hass, acc)
         await _async_reconfigure_stream(hass, acc, session_info, {})
-        await _async_stop_stream(hass, acc, session_info)
         await _async_stop_all_streams(hass, acc)
 
     expected_output = (
@@ -564,7 +590,7 @@ async def test_camera_with_linked_motion_sensor(hass, run_driver, events):
     motion_entity_id = "binary_sensor.motion"
 
     hass.states.async_set(
-        motion_entity_id, STATE_ON, {ATTR_DEVICE_CLASS: DEVICE_CLASS_MOTION}
+        motion_entity_id, STATE_ON, {ATTR_DEVICE_CLASS: BinarySensorDeviceClass.MOTION}
     )
     await hass.async_block_till_done()
     entity_id = "camera.demo_camera"
@@ -599,20 +625,44 @@ async def test_camera_with_linked_motion_sensor(hass, run_driver, events):
     assert char
 
     assert char.value is True
+    broker = MagicMock()
+    char.broker = broker
 
     hass.states.async_set(
-        motion_entity_id, STATE_OFF, {ATTR_DEVICE_CLASS: DEVICE_CLASS_MOTION}
+        motion_entity_id, STATE_OFF, {ATTR_DEVICE_CLASS: BinarySensorDeviceClass.MOTION}
     )
     await hass.async_block_till_done()
+    assert len(broker.mock_calls) == 2
+    broker.reset_mock()
     assert char.value is False
 
     char.set_value(True)
     hass.states.async_set(
-        motion_entity_id, STATE_ON, {ATTR_DEVICE_CLASS: DEVICE_CLASS_MOTION}
+        motion_entity_id, STATE_ON, {ATTR_DEVICE_CLASS: BinarySensorDeviceClass.MOTION}
     )
     await hass.async_block_till_done()
+    assert len(broker.mock_calls) == 2
+    broker.reset_mock()
     assert char.value is True
 
+    hass.states.async_set(
+        motion_entity_id,
+        STATE_ON,
+        {ATTR_DEVICE_CLASS: BinarySensorDeviceClass.MOTION},
+        force_update=True,
+    )
+    await hass.async_block_till_done()
+    assert len(broker.mock_calls) == 0
+    broker.reset_mock()
+
+    hass.states.async_set(
+        motion_entity_id,
+        STATE_ON,
+        {ATTR_DEVICE_CLASS: BinarySensorDeviceClass.MOTION, "other": "attr"},
+    )
+    await hass.async_block_till_done()
+    assert len(broker.mock_calls) == 0
+    broker.reset_mock()
     # Ensure we do not throw when the linked
     # motion sensor is removed
     hass.states.async_remove(motion_entity_id)
@@ -662,7 +712,9 @@ async def test_camera_with_linked_doorbell_sensor(hass, run_driver, events):
     doorbell_entity_id = "binary_sensor.doorbell"
 
     hass.states.async_set(
-        doorbell_entity_id, STATE_ON, {ATTR_DEVICE_CLASS: DEVICE_CLASS_OCCUPANCY}
+        doorbell_entity_id,
+        STATE_ON,
+        {ATTR_DEVICE_CLASS: BinarySensorDeviceClass.OCCUPANCY},
     )
     await hass.async_block_till_done()
     entity_id = "camera.demo_camera"
@@ -702,24 +754,57 @@ async def test_camera_with_linked_doorbell_sensor(hass, run_driver, events):
     assert service2
     char2 = service.get_characteristic(CHAR_PROGRAMMABLE_SWITCH_EVENT)
     assert char2
-
+    broker = MagicMock()
+    char2.broker = broker
     assert char2.value is None
 
     hass.states.async_set(
-        doorbell_entity_id, STATE_OFF, {ATTR_DEVICE_CLASS: DEVICE_CLASS_OCCUPANCY}
+        doorbell_entity_id,
+        STATE_OFF,
+        {ATTR_DEVICE_CLASS: BinarySensorDeviceClass.OCCUPANCY},
     )
     await hass.async_block_till_done()
     assert char.value is None
     assert char2.value is None
+    assert len(broker.mock_calls) == 0
 
     char.set_value(True)
     char2.set_value(True)
+    broker.reset_mock()
+
     hass.states.async_set(
-        doorbell_entity_id, STATE_ON, {ATTR_DEVICE_CLASS: DEVICE_CLASS_OCCUPANCY}
+        doorbell_entity_id,
+        STATE_ON,
+        {ATTR_DEVICE_CLASS: BinarySensorDeviceClass.OCCUPANCY},
     )
     await hass.async_block_till_done()
     assert char.value is None
     assert char2.value is None
+    assert len(broker.mock_calls) == 2
+    broker.reset_mock()
+
+    hass.states.async_set(
+        doorbell_entity_id,
+        STATE_ON,
+        {ATTR_DEVICE_CLASS: BinarySensorDeviceClass.OCCUPANCY},
+        force_update=True,
+    )
+    await hass.async_block_till_done()
+    assert char.value is None
+    assert char2.value is None
+    assert len(broker.mock_calls) == 0
+    broker.reset_mock()
+
+    hass.states.async_set(
+        doorbell_entity_id,
+        STATE_ON,
+        {ATTR_DEVICE_CLASS: BinarySensorDeviceClass.OCCUPANCY, "other": "attr"},
+    )
+    await hass.async_block_till_done()
+    assert char.value is None
+    assert char2.value is None
+    assert len(broker.mock_calls) == 0
+    broker.reset_mock()
 
     # Ensure we do not throw when the linked
     # doorbell sensor is removed

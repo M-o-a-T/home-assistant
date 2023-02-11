@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from yalexs.authenticator import ValidationResult
 
-from homeassistant import config_entries, setup
+from homeassistant import config_entries
 from homeassistant.components.august.const import (
     CONF_ACCESS_TOKEN_CACHE_FILE,
     CONF_INSTALL_ID,
@@ -17,13 +17,14 @@ from homeassistant.components.august.exceptions import (
     RequireValidation,
 )
 from homeassistant.const import CONF_PASSWORD, CONF_TIMEOUT, CONF_USERNAME
+from homeassistant.core import HomeAssistant
 
 from tests.common import MockConfigEntry
 
 
-async def test_form(hass):
+async def test_form(hass: HomeAssistant) -> None:
     """Test we get the form."""
-    await setup.async_setup_component(hass, "persistent_notification", {})
+
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
@@ -58,7 +59,7 @@ async def test_form(hass):
     assert len(mock_setup_entry.mock_calls) == 1
 
 
-async def test_form_invalid_auth(hass):
+async def test_form_invalid_auth(hass: HomeAssistant) -> None:
     """Test we handle invalid auth."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -81,7 +82,7 @@ async def test_form_invalid_auth(hass):
     assert result2["errors"] == {"base": "invalid_auth"}
 
 
-async def test_user_unexpected_exception(hass):
+async def test_user_unexpected_exception(hass: HomeAssistant) -> None:
     """Test we handle an unexpected exception."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -104,7 +105,7 @@ async def test_user_unexpected_exception(hass):
     assert result2["errors"] == {"base": "unknown"}
 
 
-async def test_form_cannot_connect(hass):
+async def test_form_cannot_connect(hass: HomeAssistant) -> None:
     """Test we handle cannot connect error."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -127,7 +128,7 @@ async def test_form_cannot_connect(hass):
     assert result2["errors"] == {"base": "cannot_connect"}
 
 
-async def test_form_needs_validate(hass):
+async def test_form_needs_validate(hass: HomeAssistant) -> None:
     """Test we present validation when we need to validate."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -212,7 +213,7 @@ async def test_form_needs_validate(hass):
     assert len(mock_setup_entry.mock_calls) == 1
 
 
-async def test_form_reauth(hass):
+async def test_form_reauth(hass: HomeAssistant) -> None:
     """Test reauthenticate."""
 
     entry = MockConfigEntry(
@@ -255,7 +256,7 @@ async def test_form_reauth(hass):
     assert len(mock_setup_entry.mock_calls) == 1
 
 
-async def test_form_reauth_with_2fa(hass):
+async def test_form_reauth_with_2fa(hass: HomeAssistant) -> None:
     """Test reauthenticate with 2fa."""
 
     entry = MockConfigEntry(

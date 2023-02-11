@@ -1,5 +1,4 @@
 """Test the sia config flow."""
-import logging
 from unittest.mock import patch
 
 import pytest
@@ -17,12 +16,10 @@ from homeassistant.components.sia.const import (
     DOMAIN,
 )
 from homeassistant.const import CONF_PORT, CONF_PROTOCOL
+from homeassistant.core import HomeAssistant
 from homeassistant.setup import async_setup_component
 
 from tests.common import MockConfigEntry
-
-_LOGGER = logging.getLogger(__name__)
-
 
 BASIS_CONFIG_ENTRY_ID = 1
 BASIC_CONFIG = {
@@ -164,7 +161,9 @@ async def test_form_start_account(hass, flow_at_add_account_step):
 
 async def test_create(hass, entry_with_basic_config):
     """Test we create a entry through the form."""
-    assert entry_with_basic_config["type"] == data_entry_flow.RESULT_TYPE_CREATE_ENTRY
+    assert (
+        entry_with_basic_config["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    )
     assert (
         entry_with_basic_config["title"]
         == f"SIA Alarm on port {BASIC_CONFIG[CONF_PORT]}"
@@ -177,7 +176,7 @@ async def test_create_additional_account(hass, entry_with_additional_account_con
     """Test we create a config with two accounts."""
     assert (
         entry_with_additional_account_config["type"]
-        == data_entry_flow.RESULT_TYPE_CREATE_ENTRY
+        == data_entry_flow.FlowResultType.CREATE_ENTRY
     )
     assert (
         entry_with_additional_account_config["title"]
@@ -188,7 +187,7 @@ async def test_create_additional_account(hass, entry_with_additional_account_con
     assert entry_with_additional_account_config["options"] == ADDITIONAL_OUT["options"]
 
 
-async def test_abort_form(hass):
+async def test_abort_form(hass: HomeAssistant) -> None:
     """Test aborting a config that already exists."""
     config_entry = MockConfigEntry(
         domain=DOMAIN,
@@ -207,6 +206,13 @@ async def test_abort_form(hass):
     )
     assert get_abort["type"] == "abort"
     assert get_abort["reason"] == "already_configured"
+
+
+@pytest.fixture(autouse=True)
+def mock_sia():
+    """Mock SIAClient."""
+    with patch("homeassistant.components.sia.hub.SIAClient", autospec=True):
+        yield
 
 
 @pytest.mark.parametrize(
@@ -299,7 +305,7 @@ async def test_unknown_account(hass, flow_at_user_step):
         assert result_err["data_schema"] == ACCOUNT_SCHEMA
 
 
-async def test_options_basic(hass):
+async def test_options_basic(hass: HomeAssistant) -> None:
     """Test options flow for single account."""
     config_entry = MockConfigEntry(
         domain=DOMAIN,
@@ -311,20 +317,20 @@ async def test_options_basic(hass):
     )
     await setup_sia(hass, config_entry)
     result = await hass.config_entries.options.async_init(config_entry.entry_id)
-    assert result["type"] == data_entry_flow.RESULT_TYPE_FORM
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
     assert result["step_id"] == "options"
     assert result["last_step"]
 
     updated = await hass.config_entries.options.async_configure(
         result["flow_id"], BASIC_OPTIONS
     )
-    assert updated["type"] == data_entry_flow.RESULT_TYPE_CREATE_ENTRY
+    assert updated["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
     assert updated["data"] == {
         CONF_ACCOUNTS: {BASIC_CONFIG[CONF_ACCOUNT]: BASIC_OPTIONS}
     }
 
 
-async def test_options_additional(hass):
+async def test_options_additional(hass: HomeAssistant) -> None:
     """Test options flow for single account."""
     config_entry = MockConfigEntry(
         domain=DOMAIN,
@@ -336,13 +342,13 @@ async def test_options_additional(hass):
     )
     await setup_sia(hass, config_entry)
     result = await hass.config_entries.options.async_init(config_entry.entry_id)
-    assert result["type"] == data_entry_flow.RESULT_TYPE_FORM
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
     assert result["step_id"] == "options"
     assert not result["last_step"]
 
     updated = await hass.config_entries.options.async_configure(
         result["flow_id"], BASIC_OPTIONS
     )
-    assert updated["type"] == data_entry_flow.RESULT_TYPE_FORM
+    assert updated["type"] == data_entry_flow.FlowResultType.FORM
     assert updated["step_id"] == "options"
     assert updated["last_step"]

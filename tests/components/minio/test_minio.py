@@ -19,7 +19,7 @@ from homeassistant.components.minio import (
 from homeassistant.core import callback
 from homeassistant.setup import async_setup_component
 
-from tests.components.minio.common import TEST_EVENT
+from .common import TEST_EVENT
 
 
 @pytest.fixture(name="minio_client")
@@ -153,7 +153,7 @@ async def test_minio_listen(hass, caplog, minio_client_event):
     assert len(event.data["metadata"]) == 0
 
 
-async def test_queue_listener():
+async def test_queue_listener() -> None:
     """Tests QueueListener firing events on Home Assistant event bus."""
     hass = MagicMock()
 

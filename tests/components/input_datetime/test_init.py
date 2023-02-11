@@ -1,5 +1,4 @@
 """Tests for the Input slider component."""
-# pylint: disable=protected-access
 import datetime
 from unittest.mock import patch
 
@@ -26,7 +25,7 @@ from homeassistant.components.input_datetime import (
     SERVICE_RELOAD,
 )
 from homeassistant.const import ATTR_ENTITY_ID, ATTR_FRIENDLY_NAME, ATTR_NAME
-from homeassistant.core import Context, CoreState, State
+from homeassistant.core import Context, CoreState, HomeAssistant, State
 from homeassistant.exceptions import Unauthorized
 from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
@@ -37,8 +36,6 @@ from tests.common import mock_restore_cache
 INITIAL_DATE = "2020-01-10"
 INITIAL_TIME = "23:45:56"
 INITIAL_DATETIME = f"{INITIAL_DATE} {INITIAL_TIME}"
-
-ORIG_TIMEZONE = dt_util.DEFAULT_TIME_ZONE
 
 
 @pytest.fixture
@@ -123,7 +120,7 @@ def test_invalid_configs(config):
         CONFIG_SCHEMA({DOMAIN: config})
 
 
-async def test_set_datetime(hass):
+async def test_set_datetime(hass: HomeAssistant) -> None:
     """Test set_datetime method using date & time."""
     await async_setup_component(
         hass, DOMAIN, {DOMAIN: {"test_datetime": {"has_time": True, "has_date": True}}}
@@ -131,7 +128,9 @@ async def test_set_datetime(hass):
 
     entity_id = "input_datetime.test_datetime"
 
-    dt_obj = datetime.datetime(2017, 9, 7, 19, 46, 30, tzinfo=datetime.timezone.utc)
+    dt_obj = datetime.datetime(
+        2017, 9, 7, 19, 46, 30, tzinfo=dt_util.get_time_zone(hass.config.time_zone)
+    )
 
     await async_set_date_and_time(hass, entity_id, dt_obj)
 
@@ -149,7 +148,7 @@ async def test_set_datetime(hass):
     assert state.attributes["timestamp"] == dt_obj.timestamp()
 
 
-async def test_set_datetime_2(hass):
+async def test_set_datetime_2(hass: HomeAssistant) -> None:
     """Test set_datetime method using datetime."""
     await async_setup_component(
         hass, DOMAIN, {DOMAIN: {"test_datetime": {"has_time": True, "has_date": True}}}
@@ -157,7 +156,9 @@ async def test_set_datetime_2(hass):
 
     entity_id = "input_datetime.test_datetime"
 
-    dt_obj = datetime.datetime(2017, 9, 7, 19, 46, 30, tzinfo=datetime.timezone.utc)
+    dt_obj = datetime.datetime(
+        2017, 9, 7, 19, 46, 30, tzinfo=dt_util.get_time_zone(hass.config.time_zone)
+    )
 
     await async_set_datetime(hass, entity_id, dt_obj)
 
@@ -175,7 +176,7 @@ async def test_set_datetime_2(hass):
     assert state.attributes["timestamp"] == dt_obj.timestamp()
 
 
-async def test_set_datetime_3(hass):
+async def test_set_datetime_3(hass: HomeAssistant) -> None:
     """Test set_datetime method using timestamp."""
     await async_setup_component(
         hass, DOMAIN, {DOMAIN: {"test_datetime": {"has_time": True, "has_date": True}}}
@@ -183,7 +184,9 @@ async def test_set_datetime_3(hass):
 
     entity_id = "input_datetime.test_datetime"
 
-    dt_obj = datetime.datetime(2017, 9, 7, 19, 46, 30, tzinfo=datetime.timezone.utc)
+    dt_obj = datetime.datetime(
+        2017, 9, 7, 19, 46, 30, tzinfo=dt_util.get_time_zone(hass.config.time_zone)
+    )
 
     await async_set_timestamp(hass, entity_id, dt_util.as_utc(dt_obj).timestamp())
 
@@ -201,7 +204,7 @@ async def test_set_datetime_3(hass):
     assert state.attributes["timestamp"] == dt_obj.timestamp()
 
 
-async def test_set_datetime_time(hass):
+async def test_set_datetime_time(hass: HomeAssistant) -> None:
     """Test set_datetime method with only time."""
     await async_setup_component(
         hass, DOMAIN, {DOMAIN: {"test_time": {"has_time": True, "has_date": False}}}
@@ -221,7 +224,7 @@ async def test_set_datetime_time(hass):
     assert state.attributes["timestamp"] == (19 * 3600) + (46 * 60) + 30
 
 
-async def test_set_invalid(hass):
+async def test_set_invalid(hass: HomeAssistant) -> None:
     """Test set_datetime method with only time."""
     initial = "2017-01-01"
     await async_setup_component(
@@ -251,7 +254,7 @@ async def test_set_invalid(hass):
     assert state.state == initial
 
 
-async def test_set_invalid_2(hass):
+async def test_set_invalid_2(hass: HomeAssistant) -> None:
     """Test set_datetime method with date and datetime."""
     initial = "2017-01-01"
     await async_setup_component(
@@ -281,7 +284,7 @@ async def test_set_invalid_2(hass):
     assert state.state == initial
 
 
-async def test_set_datetime_date(hass):
+async def test_set_datetime_date(hass: HomeAssistant) -> None:
     """Test set_datetime method with only date."""
     await async_setup_component(
         hass, DOMAIN, {DOMAIN: {"test_date": {"has_time": False, "has_date": True}}}
@@ -303,7 +306,7 @@ async def test_set_datetime_date(hass):
     assert state.attributes["timestamp"] == date_dt_obj.timestamp()
 
 
-async def test_restore_state(hass):
+async def test_restore_state(hass: HomeAssistant) -> None:
     """Ensure states are restored on startup."""
     mock_restore_cache(
         hass,
@@ -361,7 +364,7 @@ async def test_restore_state(hass):
     assert state_was_date.state == default.strftime(FMT_TIME)
 
 
-async def test_default_value(hass):
+async def test_default_value(hass: HomeAssistant) -> None:
     """Test default value if none has been set via initial or restore state."""
     await async_setup_component(
         hass,
@@ -579,17 +582,23 @@ async def test_update(hass, hass_ws_client, storage_setup):
 
     client = await hass_ws_client(hass)
 
+    updated_settings = {
+        CONF_NAME: "even newer name",
+        CONF_HAS_DATE: False,
+        CONF_HAS_TIME: True,
+        CONF_INITIAL: INITIAL_DATETIME,
+    }
     await client.send_json(
         {
             "id": 6,
             "type": f"{DOMAIN}/update",
             f"{DOMAIN}_id": f"{input_id}",
-            ATTR_NAME: "even newer name",
-            CONF_HAS_DATE: False,
+            **updated_settings,
         }
     )
     resp = await client.receive_json()
     assert resp["success"]
+    assert resp["result"] == {"id": "from_storage"} | updated_settings
 
     state = hass.states.get(input_entity_id)
     assert state.state == INITIAL_TIME
@@ -647,100 +656,123 @@ async def test_setup_no_config(hass, hass_admin_user):
     assert count_start == len(hass.states.async_entity_ids())
 
 
-async def test_timestamp(hass):
+async def test_timestamp(hass: HomeAssistant) -> None:
     """Test timestamp."""
-    try:
-        dt_util.set_default_time_zone(dt_util.get_time_zone("America/Los_Angeles"))
+    hass.config.set_time_zone("America/Los_Angeles")
 
-        assert await async_setup_component(
-            hass,
-            DOMAIN,
-            {
-                DOMAIN: {
-                    "test_datetime_initial_with_tz": {
-                        "has_time": True,
-                        "has_date": True,
-                        "initial": "2020-12-13 10:00:00+01:00",
-                    },
-                    "test_datetime_initial_without_tz": {
-                        "has_time": True,
-                        "has_date": True,
-                        "initial": "2020-12-13 10:00:00",
-                    },
-                    "test_time_initial": {
-                        "has_time": True,
-                        "has_date": False,
-                        "initial": "10:00:00",
-                    },
-                }
-            },
-        )
+    assert await async_setup_component(
+        hass,
+        DOMAIN,
+        {
+            DOMAIN: {
+                "test_datetime_initial_with_tz": {
+                    "has_time": True,
+                    "has_date": True,
+                    "initial": "2020-12-13 10:00:00+01:00",
+                },
+                "test_datetime_initial_without_tz": {
+                    "has_time": True,
+                    "has_date": True,
+                    "initial": "2020-12-13 10:00:00",
+                },
+                "test_time_initial": {
+                    "has_time": True,
+                    "has_date": False,
+                    "initial": "10:00:00",
+                },
+            }
+        },
+    )
 
-        # initial has been converted to the set timezone
-        state_with_tz = hass.states.get("input_datetime.test_datetime_initial_with_tz")
-        assert state_with_tz is not None
-        # Timezone LA is UTC-8 => timestamp carries +01:00 => delta is -9 => 10:00 - 09:00 => 01:00
-        assert state_with_tz.state == "2020-12-13 01:00:00"
-        assert (
-            dt_util.as_local(
-                dt_util.utc_from_timestamp(state_with_tz.attributes[ATTR_TIMESTAMP])
-            ).strftime(FMT_DATETIME)
-            == "2020-12-13 01:00:00"
-        )
+    # initial has been converted to the set timezone
+    state_with_tz = hass.states.get("input_datetime.test_datetime_initial_with_tz")
+    assert state_with_tz is not None
+    # Timezone LA is UTC-8 => timestamp carries +01:00 => delta is -9 => 10:00 - 09:00 => 01:00
+    assert state_with_tz.state == "2020-12-13 01:00:00"
+    assert (
+        dt_util.as_local(
+            dt_util.utc_from_timestamp(state_with_tz.attributes[ATTR_TIMESTAMP])
+        ).strftime(FMT_DATETIME)
+        == "2020-12-13 01:00:00"
+    )
 
-        # initial has been interpreted as being part of set timezone
-        state_without_tz = hass.states.get(
-            "input_datetime.test_datetime_initial_without_tz"
-        )
-        assert state_without_tz is not None
-        assert state_without_tz.state == "2020-12-13 10:00:00"
-        # Timezone LA is UTC-8 => timestamp has no zone (= assumed local) => delta to UTC is +8 => 10:00 + 08:00 => 18:00
-        assert (
-            dt_util.utc_from_timestamp(
-                state_without_tz.attributes[ATTR_TIMESTAMP]
-            ).strftime(FMT_DATETIME)
-            == "2020-12-13 18:00:00"
-        )
-        assert (
-            dt_util.as_local(
-                dt_util.utc_from_timestamp(state_without_tz.attributes[ATTR_TIMESTAMP])
-            ).strftime(FMT_DATETIME)
-            == "2020-12-13 10:00:00"
-        )
-        # Use datetime.datetime.fromtimestamp
-        assert (
-            dt_util.as_local(
-                datetime.datetime.fromtimestamp(
-                    state_without_tz.attributes[ATTR_TIMESTAMP], datetime.timezone.utc
-                )
-            ).strftime(FMT_DATETIME)
-            == "2020-12-13 10:00:00"
-        )
+    # initial has been interpreted as being part of set timezone
+    state_without_tz = hass.states.get(
+        "input_datetime.test_datetime_initial_without_tz"
+    )
+    assert state_without_tz is not None
+    assert state_without_tz.state == "2020-12-13 10:00:00"
+    # Timezone LA is UTC-8 => timestamp has no zone (= assumed local) => delta to UTC is +8 => 10:00 + 08:00 => 18:00
+    assert (
+        dt_util.utc_from_timestamp(
+            state_without_tz.attributes[ATTR_TIMESTAMP]
+        ).strftime(FMT_DATETIME)
+        == "2020-12-13 18:00:00"
+    )
+    assert (
+        dt_util.as_local(
+            dt_util.utc_from_timestamp(state_without_tz.attributes[ATTR_TIMESTAMP])
+        ).strftime(FMT_DATETIME)
+        == "2020-12-13 10:00:00"
+    )
+    # Use datetime.datetime.fromtimestamp
+    assert (
+        dt_util.as_local(
+            datetime.datetime.fromtimestamp(
+                state_without_tz.attributes[ATTR_TIMESTAMP], datetime.timezone.utc
+            )
+        ).strftime(FMT_DATETIME)
+        == "2020-12-13 10:00:00"
+    )
 
-        # Test initial time sets timestamp correctly.
-        state_time = hass.states.get("input_datetime.test_time_initial")
-        assert state_time is not None
-        assert state_time.state == "10:00:00"
-        assert state_time.attributes[ATTR_TIMESTAMP] == 10 * 60 * 60
+    # Test initial time sets timestamp correctly.
+    state_time = hass.states.get("input_datetime.test_time_initial")
+    assert state_time is not None
+    assert state_time.state == "10:00:00"
+    assert state_time.attributes[ATTR_TIMESTAMP] == 10 * 60 * 60
 
-        # Test that setting the timestamp of an entity works.
-        await hass.services.async_call(
-            DOMAIN,
-            "set_datetime",
-            {
-                ATTR_ENTITY_ID: "input_datetime.test_datetime_initial_with_tz",
-                ATTR_TIMESTAMP: state_without_tz.attributes[ATTR_TIMESTAMP],
-            },
-            blocking=True,
-        )
-        state_with_tz_updated = hass.states.get(
-            "input_datetime.test_datetime_initial_with_tz"
-        )
-        assert state_with_tz_updated.state == "2020-12-13 10:00:00"
-        assert (
-            state_with_tz_updated.attributes[ATTR_TIMESTAMP]
-            == state_without_tz.attributes[ATTR_TIMESTAMP]
-        )
+    # Test that setting the timestamp of an entity works.
+    await hass.services.async_call(
+        DOMAIN,
+        "set_datetime",
+        {
+            ATTR_ENTITY_ID: "input_datetime.test_datetime_initial_with_tz",
+            ATTR_TIMESTAMP: state_without_tz.attributes[ATTR_TIMESTAMP],
+        },
+        blocking=True,
+    )
+    state_with_tz_updated = hass.states.get(
+        "input_datetime.test_datetime_initial_with_tz"
+    )
+    assert state_with_tz_updated.state == "2020-12-13 10:00:00"
+    assert (
+        state_with_tz_updated.attributes[ATTR_TIMESTAMP]
+        == state_without_tz.attributes[ATTR_TIMESTAMP]
+    )
 
-    finally:
-        dt_util.set_default_time_zone(ORIG_TIMEZONE)
+
+@pytest.mark.parametrize(
+    "config, error",
+    [
+        (
+            {"has_time": True, "has_date": True, "initial": "abc"},
+            "'abc' can't be parsed as a datetime",
+        ),
+        (
+            {"has_time": False, "has_date": True, "initial": "abc"},
+            "'abc' can't be parsed as a date",
+        ),
+        (
+            {"has_time": True, "has_date": False, "initial": "abc"},
+            "'abc' can't be parsed as a time",
+        ),
+    ],
+)
+async def test_invalid_initial(hass, caplog, config, error):
+    """Test configuration is rejected if the initial value is invalid."""
+    assert not await async_setup_component(
+        hass,
+        DOMAIN,
+        {DOMAIN: {"test_date": config}},
+    )
+    assert error in caplog.text

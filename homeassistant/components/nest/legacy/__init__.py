@@ -1,4 +1,5 @@
 """Support for Nest devices."""
+# mypy: ignore-errors
 
 from datetime import datetime, timedelta
 import logging
@@ -9,6 +10,7 @@ from nest.nest import APIError, AuthorizationError
 import voluptuous as vol
 
 from homeassistant import config_entries
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_CLIENT_ID,
     CONF_CLIENT_SECRET,
@@ -16,11 +18,12 @@ from homeassistant.const import (
     CONF_STRUCTURE,
     EVENT_HOMEASSISTANT_START,
     EVENT_HOMEASSISTANT_STOP,
+    Platform,
 )
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.dispatcher import async_dispatcher_connect, dispatcher_send
-from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.entity import DeviceInfo, Entity
 
 from . import local_auth
 from .const import DATA_NEST, DATA_NEST_CONFIG, DOMAIN, SIGNAL_NEST_UPDATE
@@ -28,7 +31,12 @@ from .const import DATA_NEST, DATA_NEST_CONFIG, DOMAIN, SIGNAL_NEST_UPDATE
 _CONFIGURING = {}
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["climate", "camera", "sensor", "binary_sensor"]
+PLATFORMS = [
+    Platform.BINARY_SENSOR,
+    Platform.CAMERA,
+    Platform.CLIMATE,
+    Platform.SENSOR,
+]
 
 # Configuration for the legacy nest API
 SERVICE_CANCEL_ETA = "cancel_eta"
@@ -74,8 +82,7 @@ CANCEL_ETA_SCHEMA = vol.Schema(
 
 
 def nest_update_event_broker(hass, nest):
-    """
-    Dispatch SIGNAL_NEST_UPDATE to devices when nest stream API received data.
+    """Dispatch SIGNAL_NEST_UPDATE to devices when nest stream API received data.
 
     Used for the legacy nest API.
 
@@ -96,7 +103,7 @@ def nest_update_event_broker(hass, nest):
     _LOGGER.debug("Stop listening for nest.update_event")
 
 
-async def async_setup_legacy(hass, config) -> bool:
+async def async_setup_legacy(hass: HomeAssistant, config: dict) -> bool:
     """Set up Nest components using the legacy nest API."""
     if DOMAIN not in config:
         return True
@@ -122,7 +129,7 @@ async def async_setup_legacy(hass, config) -> bool:
     return True
 
 
-async def async_setup_legacy_entry(hass, entry) -> bool:
+async def async_setup_legacy_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Nest from legacy config entry."""
 
     nest = Nest(access_token=entry.data["tokens"]["access_token"])
@@ -133,10 +140,7 @@ async def async_setup_legacy_entry(hass, entry) -> bool:
     if not await hass.async_add_executor_job(hass.data[DATA_NEST].initialize):
         return False
 
-    for platform in PLATFORMS:
-        hass.async_create_task(
-            hass.config_entries.async_forward_entry_setup(entry, platform)
-        )
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     def validate_structures(target_structures):
         all_structures = [structure.name for structure in nest.structures]
@@ -187,8 +191,10 @@ async def async_setup_legacy_entry(hass, entry) -> bool:
                     eta_window = service.data.get(ATTR_ETA_WINDOW, timedelta(minutes=1))
                     eta_end = eta_begin + eta_window
                     _LOGGER.info(
-                        "Setting ETA for trip: %s, "
-                        "ETA window starts at: %s and ends at: %s",
+                        (
+                            "Setting ETA for trip: %s, "
+                            "ETA window starts at: %s and ends at: %s"
+                        ),
                         trip_id,
                         eta_begin,
                         eta_end,
@@ -216,8 +222,7 @@ async def async_setup_legacy_entry(hass, entry) -> bool:
                     structure.cancel_eta(trip_id)
                 else:
                     _LOGGER.info(
-                        "No thermostats found in structure: %s, "
-                        "unable to cancel ETA",
+                        "No thermostats found in structure: %s, unable to cancel ETA",
                         structure.name,
                     )
 
@@ -328,9 +333,11 @@ class NestLegacyDevice:
                         device.name_long
                     except KeyError:
                         _LOGGER.warning(
-                            "Cannot retrieve device name for [%s]"
-                            ", please check your Nest developer "
-                            "account permission settings",
+                            (
+                                "Cannot retrieve device name for [%s]"
+                                ", please check your Nest developer "
+                                "account permission settings"
+                            ),
                             device.serial,
                         )
                         continue
@@ -342,6 +349,8 @@ class NestLegacyDevice:
 
 class NestSensorDevice(Entity):
     """Representation of a Nest sensor."""
+
+    _attr_should_poll = False
 
     def __init__(self, structure, device, variable):
         """Initialize the sensor."""
@@ -366,17 +375,12 @@ class NestSensorDevice(Entity):
         return self._name
 
     @property
-    def should_poll(self):
-        """Do not need poll thanks using Nest streaming API."""
-        return False
-
-    @property
     def unique_id(self):
         """Return unique id based on device serial and variable."""
         return f"{self.device.serial}-{self.variable}"
 
     @property
-    def device_info(self):
+    def device_info(self) -> DeviceInfo:
         """Return information about the device."""
         if not hasattr(self.device, "name_long"):
             name = self.structure.name
@@ -392,12 +396,12 @@ class NestSensorDevice(Entity):
             else:
                 model = None
 
-        return {
-            "identifiers": {(DOMAIN, self.device.serial)},
-            "name": name,
-            "manufacturer": "Nest Labs",
-            "model": model,
-        }
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.device.serial)},
+            manufacturer="Nest Labs",
+            model=model,
+            name=name,
+        )
 
     def update(self):
         """Do not use NestSensorDevice directly."""

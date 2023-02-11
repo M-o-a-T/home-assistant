@@ -10,6 +10,7 @@ from homeassistant.components.ondilo_ico.const import (
     OAUTH2_TOKEN,
 )
 from homeassistant.const import CONF_CLIENT_ID, CONF_CLIENT_SECRET
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_entry_oauth2_flow
 
 from tests.common import MockConfigEntry
@@ -18,19 +19,19 @@ CLIENT_ID = OAUTH2_CLIENTID
 CLIENT_SECRET = OAUTH2_CLIENTSECRET
 
 
-async def test_abort_if_existing_entry(hass):
+async def test_abort_if_existing_entry(hass: HomeAssistant) -> None:
     """Check flow abort when an entry already exist."""
     MockConfigEntry(domain=DOMAIN).add_to_hass(hass)
 
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
-    assert result["type"] == data_entry_flow.RESULT_TYPE_ABORT
+    assert result["type"] == data_entry_flow.FlowResultType.ABORT
     assert result["reason"] == "single_instance_allowed"
 
 
 async def test_full_flow(
-    hass, aiohttp_client, aioclient_mock, current_request_with_host
+    hass, hass_client_no_auth, aioclient_mock, current_request_with_host
 ):
     """Check full flow."""
     assert await setup.async_setup_component(
@@ -60,7 +61,7 @@ async def test_full_flow(
         "&scope=api"
     )
 
-    client = await aiohttp_client(hass.http.app)
+    client = await hass_client_no_auth()
     resp = await client.get(f"/auth/external/callback?code=abcd&state={state}")
     assert resp.status == 200
     assert resp.headers["content-type"] == "text/html; charset=utf-8"

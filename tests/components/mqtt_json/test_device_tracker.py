@@ -26,7 +26,7 @@ LOCATION_MESSAGE_INCOMPLETE = {"longitude": 2.0}
 
 
 @pytest.fixture(autouse=True)
-def setup_comp(hass, mqtt_mock):
+async def setup_comp(hass, mqtt_mock_entry_with_yaml_config):
     """Initialize components."""
     yaml_devices = hass.config.path(YAML_DEVICES)
     yield
@@ -46,7 +46,6 @@ async def test_ensure_device_tracker_platform_validation(hass):
         autospec=True,
         side_effect=mock_setup_scanner,
     ) as mock_sp:
-
         dev_id = "paulus"
         topic = "location/paulus"
         assert await async_setup_component(

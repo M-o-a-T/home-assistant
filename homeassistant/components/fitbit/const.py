@@ -1,17 +1,22 @@
 """Constants for the Fitbit platform."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Final
 
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntityDescription,
+    SensorStateClass,
+)
 from homeassistant.const import (
     CONF_CLIENT_ID,
     CONF_CLIENT_SECRET,
-    LENGTH_FEET,
-    MASS_KILOGRAMS,
-    MASS_MILLIGRAMS,
     PERCENTAGE,
-    TIME_MILLISECONDS,
-    TIME_MINUTES,
+    UnitOfLength,
+    UnitOfMass,
+    UnitOfTime,
+    UnitOfVolume,
 )
 
 ATTR_ACCESS_TOKEN: Final = "access_token"
@@ -43,98 +48,277 @@ DEFAULT_CONFIG: Final[dict[str, str]] = {
 }
 DEFAULT_CLOCK_FORMAT: Final = "24H"
 
-FITBIT_RESOURCES_LIST: Final[dict[str, tuple[str, str | None, str]]] = {
-    "activities/activityCalories": ("Activity Calories", "cal", "fire"),
-    "activities/calories": ("Calories", "cal", "fire"),
-    "activities/caloriesBMR": ("Calories BMR", "cal", "fire"),
-    "activities/distance": ("Distance", "", "map-marker"),
-    "activities/elevation": ("Elevation", "", "walk"),
-    "activities/floors": ("Floors", "floors", "walk"),
-    "activities/heart": ("Resting Heart Rate", "bpm", "heart-pulse"),
-    "activities/minutesFairlyActive": ("Minutes Fairly Active", TIME_MINUTES, "walk"),
-    "activities/minutesLightlyActive": ("Minutes Lightly Active", TIME_MINUTES, "walk"),
-    "activities/minutesSedentary": (
-        "Minutes Sedentary",
-        TIME_MINUTES,
-        "seat-recline-normal",
+
+@dataclass
+class FitbitSensorEntityDescription(SensorEntityDescription):
+    """Describes Fitbit sensor entity."""
+
+    unit_type: str | None = None
+
+
+FITBIT_RESOURCES_LIST: Final[tuple[FitbitSensorEntityDescription, ...]] = (
+    FitbitSensorEntityDescription(
+        key="activities/activityCalories",
+        name="Activity Calories",
+        native_unit_of_measurement="cal",
+        icon="mdi:fire",
     ),
-    "activities/minutesVeryActive": ("Minutes Very Active", TIME_MINUTES, "run"),
-    "activities/steps": ("Steps", "steps", "walk"),
-    "activities/tracker/activityCalories": ("Tracker Activity Calories", "cal", "fire"),
-    "activities/tracker/calories": ("Tracker Calories", "cal", "fire"),
-    "activities/tracker/distance": ("Tracker Distance", "", "map-marker"),
-    "activities/tracker/elevation": ("Tracker Elevation", "", "walk"),
-    "activities/tracker/floors": ("Tracker Floors", "floors", "walk"),
-    "activities/tracker/minutesFairlyActive": (
-        "Tracker Minutes Fairly Active",
-        TIME_MINUTES,
-        "walk",
+    FitbitSensorEntityDescription(
+        key="activities/calories",
+        name="Calories",
+        native_unit_of_measurement="cal",
+        icon="mdi:fire",
     ),
-    "activities/tracker/minutesLightlyActive": (
-        "Tracker Minutes Lightly Active",
-        TIME_MINUTES,
-        "walk",
+    FitbitSensorEntityDescription(
+        key="activities/caloriesBMR",
+        name="Calories BMR",
+        native_unit_of_measurement="cal",
+        icon="mdi:fire",
     ),
-    "activities/tracker/minutesSedentary": (
-        "Tracker Minutes Sedentary",
-        TIME_MINUTES,
-        "seat-recline-normal",
+    FitbitSensorEntityDescription(
+        key="activities/distance",
+        name="Distance",
+        unit_type="distance",
+        icon="mdi:map-marker",
+        device_class=SensorDeviceClass.DISTANCE,
     ),
-    "activities/tracker/minutesVeryActive": (
-        "Tracker Minutes Very Active",
-        TIME_MINUTES,
-        "run",
+    FitbitSensorEntityDescription(
+        key="activities/elevation",
+        name="Elevation",
+        unit_type="elevation",
+        icon="mdi:walk",
+        device_class=SensorDeviceClass.DISTANCE,
     ),
-    "activities/tracker/steps": ("Tracker Steps", "steps", "walk"),
-    "body/bmi": ("BMI", "BMI", "human"),
-    "body/fat": ("Body Fat", PERCENTAGE, "human"),
-    "body/weight": ("Weight", "", "human"),
-    "devices/battery": ("Battery", None, "battery"),
-    "sleep/awakeningsCount": ("Awakenings Count", "times awaken", "sleep"),
-    "sleep/efficiency": ("Sleep Efficiency", PERCENTAGE, "sleep"),
-    "sleep/minutesAfterWakeup": ("Minutes After Wakeup", TIME_MINUTES, "sleep"),
-    "sleep/minutesAsleep": ("Sleep Minutes Asleep", TIME_MINUTES, "sleep"),
-    "sleep/minutesAwake": ("Sleep Minutes Awake", TIME_MINUTES, "sleep"),
-    "sleep/minutesToFallAsleep": (
-        "Sleep Minutes to Fall Asleep",
-        TIME_MINUTES,
-        "sleep",
+    FitbitSensorEntityDescription(
+        key="activities/floors",
+        name="Floors",
+        native_unit_of_measurement="floors",
+        icon="mdi:walk",
     ),
-    "sleep/startTime": ("Sleep Start Time", None, "clock"),
-    "sleep/timeInBed": ("Sleep Time in Bed", TIME_MINUTES, "hotel"),
-}
+    FitbitSensorEntityDescription(
+        key="activities/heart",
+        name="Resting Heart Rate",
+        native_unit_of_measurement="bpm",
+        icon="mdi:heart-pulse",
+    ),
+    FitbitSensorEntityDescription(
+        key="activities/minutesFairlyActive",
+        name="Minutes Fairly Active",
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        icon="mdi:walk",
+        device_class=SensorDeviceClass.DURATION,
+    ),
+    FitbitSensorEntityDescription(
+        key="activities/minutesLightlyActive",
+        name="Minutes Lightly Active",
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        icon="mdi:walk",
+        device_class=SensorDeviceClass.DURATION,
+    ),
+    FitbitSensorEntityDescription(
+        key="activities/minutesSedentary",
+        name="Minutes Sedentary",
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        icon="mdi:seat-recline-normal",
+        device_class=SensorDeviceClass.DURATION,
+    ),
+    FitbitSensorEntityDescription(
+        key="activities/minutesVeryActive",
+        name="Minutes Very Active",
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        icon="mdi:run",
+        device_class=SensorDeviceClass.DURATION,
+    ),
+    FitbitSensorEntityDescription(
+        key="activities/steps",
+        name="Steps",
+        native_unit_of_measurement="steps",
+        icon="mdi:walk",
+    ),
+    FitbitSensorEntityDescription(
+        key="activities/tracker/activityCalories",
+        name="Tracker Activity Calories",
+        native_unit_of_measurement="cal",
+        icon="mdi:fire",
+    ),
+    FitbitSensorEntityDescription(
+        key="activities/tracker/calories",
+        name="Tracker Calories",
+        native_unit_of_measurement="cal",
+        icon="mdi:fire",
+    ),
+    FitbitSensorEntityDescription(
+        key="activities/tracker/distance",
+        name="Tracker Distance",
+        unit_type="distance",
+        icon="mdi:map-marker",
+        device_class=SensorDeviceClass.DISTANCE,
+    ),
+    FitbitSensorEntityDescription(
+        key="activities/tracker/elevation",
+        name="Tracker Elevation",
+        unit_type="elevation",
+        icon="mdi:walk",
+        device_class=SensorDeviceClass.DISTANCE,
+    ),
+    FitbitSensorEntityDescription(
+        key="activities/tracker/floors",
+        name="Tracker Floors",
+        native_unit_of_measurement="floors",
+        icon="mdi:walk",
+    ),
+    FitbitSensorEntityDescription(
+        key="activities/tracker/minutesFairlyActive",
+        name="Tracker Minutes Fairly Active",
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        icon="mdi:walk",
+        device_class=SensorDeviceClass.DURATION,
+    ),
+    FitbitSensorEntityDescription(
+        key="activities/tracker/minutesLightlyActive",
+        name="Tracker Minutes Lightly Active",
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        icon="mdi:walk",
+        device_class=SensorDeviceClass.DURATION,
+    ),
+    FitbitSensorEntityDescription(
+        key="activities/tracker/minutesSedentary",
+        name="Tracker Minutes Sedentary",
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        icon="mdi:seat-recline-normal",
+        device_class=SensorDeviceClass.DURATION,
+    ),
+    FitbitSensorEntityDescription(
+        key="activities/tracker/minutesVeryActive",
+        name="Tracker Minutes Very Active",
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        icon="mdi:run",
+        device_class=SensorDeviceClass.DURATION,
+    ),
+    FitbitSensorEntityDescription(
+        key="activities/tracker/steps",
+        name="Tracker Steps",
+        native_unit_of_measurement="steps",
+        icon="mdi:walk",
+    ),
+    FitbitSensorEntityDescription(
+        key="body/bmi",
+        name="BMI",
+        native_unit_of_measurement="BMI",
+        icon="mdi:human",
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    FitbitSensorEntityDescription(
+        key="body/fat",
+        name="Body Fat",
+        native_unit_of_measurement=PERCENTAGE,
+        icon="mdi:human",
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    FitbitSensorEntityDescription(
+        key="body/weight",
+        name="Weight",
+        unit_type="weight",
+        icon="mdi:human",
+        state_class=SensorStateClass.MEASUREMENT,
+        device_class=SensorDeviceClass.WEIGHT,
+    ),
+    FitbitSensorEntityDescription(
+        key="sleep/awakeningsCount",
+        name="Awakenings Count",
+        native_unit_of_measurement="times awaken",
+        icon="mdi:sleep",
+    ),
+    FitbitSensorEntityDescription(
+        key="sleep/efficiency",
+        name="Sleep Efficiency",
+        native_unit_of_measurement=PERCENTAGE,
+        icon="mdi:sleep",
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    FitbitSensorEntityDescription(
+        key="sleep/minutesAfterWakeup",
+        name="Minutes After Wakeup",
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        icon="mdi:sleep",
+        device_class=SensorDeviceClass.DURATION,
+    ),
+    FitbitSensorEntityDescription(
+        key="sleep/minutesAsleep",
+        name="Sleep Minutes Asleep",
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        icon="mdi:sleep",
+        device_class=SensorDeviceClass.DURATION,
+    ),
+    FitbitSensorEntityDescription(
+        key="sleep/minutesAwake",
+        name="Sleep Minutes Awake",
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        icon="mdi:sleep",
+        device_class=SensorDeviceClass.DURATION,
+    ),
+    FitbitSensorEntityDescription(
+        key="sleep/minutesToFallAsleep",
+        name="Sleep Minutes to Fall Asleep",
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        icon="mdi:sleep",
+        device_class=SensorDeviceClass.DURATION,
+    ),
+    FitbitSensorEntityDescription(
+        key="sleep/startTime",
+        name="Sleep Start Time",
+        icon="mdi:clock",
+    ),
+    FitbitSensorEntityDescription(
+        key="sleep/timeInBed",
+        name="Sleep Time in Bed",
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        icon="mdi:hotel",
+        device_class=SensorDeviceClass.DURATION,
+    ),
+)
+
+FITBIT_RESOURCE_BATTERY = FitbitSensorEntityDescription(
+    key="devices/battery",
+    name="Battery",
+    icon="mdi:battery",
+)
+
+FITBIT_RESOURCES_KEYS: Final[list[str]] = [
+    desc.key for desc in (*FITBIT_RESOURCES_LIST, FITBIT_RESOURCE_BATTERY)
+]
 
 FITBIT_MEASUREMENTS: Final[dict[str, dict[str, str]]] = {
     "en_US": {
-        ATTR_DURATION: TIME_MILLISECONDS,
-        ATTR_DISTANCE: "mi",
-        ATTR_ELEVATION: LENGTH_FEET,
-        ATTR_HEIGHT: "in",
-        ATTR_WEIGHT: "lbs",
-        ATTR_BODY: "in",
-        ATTR_LIQUIDS: "fl. oz.",
-        ATTR_BLOOD_GLUCOSE: f"{MASS_MILLIGRAMS}/dL",
+        ATTR_DURATION: UnitOfTime.MILLISECONDS,
+        ATTR_DISTANCE: UnitOfLength.MILES,
+        ATTR_ELEVATION: UnitOfLength.FEET,
+        ATTR_HEIGHT: UnitOfLength.INCHES,
+        ATTR_WEIGHT: UnitOfMass.POUNDS,
+        ATTR_BODY: UnitOfLength.INCHES,
+        ATTR_LIQUIDS: UnitOfVolume.FLUID_OUNCES,
+        ATTR_BLOOD_GLUCOSE: f"{UnitOfMass.MILLIGRAMS}/dL",
         ATTR_BATTERY: "",
     },
     "en_GB": {
-        ATTR_DURATION: TIME_MILLISECONDS,
-        ATTR_DISTANCE: "kilometers",
-        ATTR_ELEVATION: "meters",
-        ATTR_HEIGHT: "centimeters",
-        ATTR_WEIGHT: "stone",
-        ATTR_BODY: "centimeters",
-        ATTR_LIQUIDS: "milliliters",
+        ATTR_DURATION: UnitOfTime.MILLISECONDS,
+        ATTR_DISTANCE: UnitOfLength.KILOMETERS,
+        ATTR_ELEVATION: UnitOfLength.METERS,
+        ATTR_HEIGHT: UnitOfLength.CENTIMETERS,
+        ATTR_WEIGHT: UnitOfMass.STONES,
+        ATTR_BODY: UnitOfLength.CENTIMETERS,
+        ATTR_LIQUIDS: UnitOfVolume.MILLILITERS,
         ATTR_BLOOD_GLUCOSE: "mmol/L",
         ATTR_BATTERY: "",
     },
     "metric": {
-        ATTR_DURATION: TIME_MILLISECONDS,
-        ATTR_DISTANCE: "kilometers",
-        ATTR_ELEVATION: "meters",
-        ATTR_HEIGHT: "centimeters",
-        ATTR_WEIGHT: MASS_KILOGRAMS,
-        ATTR_BODY: "centimeters",
-        ATTR_LIQUIDS: "milliliters",
+        ATTR_DURATION: UnitOfTime.MILLISECONDS,
+        ATTR_DISTANCE: UnitOfLength.KILOMETERS,
+        ATTR_ELEVATION: UnitOfLength.METERS,
+        ATTR_HEIGHT: UnitOfLength.CENTIMETERS,
+        ATTR_WEIGHT: UnitOfMass.KILOGRAMS,
+        ATTR_BODY: UnitOfLength.CENTIMETERS,
+        ATTR_LIQUIDS: UnitOfVolume.MILLILITERS,
         ATTR_BLOOD_GLUCOSE: "mmol/L",
         ATTR_BATTERY: "",
     },

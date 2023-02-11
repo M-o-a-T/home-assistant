@@ -23,6 +23,7 @@ CONF_TEXT_TYPE = "text"
 SUPPORTED_VOICES = [
     "ar-AR_OmarVoice",
     "ar-MS_OmarVoice",
+    "cs-CZ_AlenaVoice",
     "de-DE_BirgitV2Voice",
     "de-DE_BirgitV3Voice",
     "de-DE_BirgitVoice",
@@ -32,21 +33,26 @@ SUPPORTED_VOICES = [
     "de-DE_ErikaV3Voice",
     "en-AU_CraigVoice",
     "en-AU_MadisonVoice",
+    "en-AU_SteveVoice",
     "en-GB_KateV3Voice",
     "en-GB_KateVoice",
     "en-GB_CharlotteV3Voice",
     "en-GB_JamesV3Voice",
     "en-GB_KateV3Voice",
     "en-GB_KateVoice",
+    "en-US_AllisonExpressive",
     "en-US_AllisonV2Voice",
     "en-US_AllisonV3Voice",
     "en-US_AllisonVoice",
     "en-US_EmilyV3Voice",
+    "en-US_EmmaExpressive",
     "en-US_HenryV3Voice",
     "en-US_KevinV3Voice",
+    "en-US_LisaExpressive",
     "en-US_LisaV2Voice",
     "en-US_LisaV3Voice",
     "en-US_LisaVoice",
+    "en-US_MichaelExpressive",
     "en-US_MichaelV2Voice",
     "en-US_MichaelV3Voice",
     "en-US_MichaelVoice",
@@ -72,10 +78,13 @@ SUPPORTED_VOICES = [
     "ko-KR_SiWooVoice",
     "ko-KR_YoungmiVoice",
     "ko-KR_YunaVoice",
+    "nl-BE_AdeleVoice",
+    "nl-BE_BramVoice",
     "nl-NL_EmmaVoice",
     "nl-NL_LiamVoice",
     "pt-BR_IsabelaV3Voice",
     "pt-BR_IsabelaVoice",
+    "sv-SE_IngridVoice",
     "zh-CN_LiNaVoice",
     "zh-CN_WangWeiVoice",
     "zh-CN_ZhangJingVoice",
@@ -83,8 +92,13 @@ SUPPORTED_VOICES = [
 
 DEPRECATED_VOICES = [
     "ar-AR_OmarVoice",
+    "ar-MS_OmarVoice",
+    "cs-CZ_AlenaVoice",
     "de-DE_BirgitVoice",
     "de-DE_DieterVoice",
+    "en-AU_CraigVoice",
+    "en-AU_MadisonVoice",
+    "en-AU_SteveVoice",
     "en-GB_KateVoice",
     "en-GB_KateV3Voice",
     "en-US_AllisonVoice",
@@ -97,7 +111,19 @@ DEPRECATED_VOICES = [
     "fr-FR_ReneeVoice",
     "it-IT_FrancescaVoice",
     "ja-JP_EmiVoice",
+    "ko-KR_HyunjunVoice",
+    "ko-KR_SiWooVoice",
+    "ko-KR_YoungmiVoice",
+    "ko-KR_YunaVoice",
+    "nl-BE_AdeleVoice",
+    "nl-BE_BramVoice",
+    "nl-NL_EmmaVoice",
+    "nl-NL_LiamVoice",
     "pt-BR_IsabelaVoice",
+    "sv-SE_IngridVoice",
+    "zh-CN_LiNaVoice",
+    "zh-CN_WangWeiVoice",
+    "zh-CN_ZhangJingVoice",
 ]
 
 SUPPORTED_OUTPUT_FORMATS = [
@@ -191,7 +217,7 @@ class WatsonTTSProvider(Provider):
     def get_tts_audio(self, message, language=None, options=None):
         """Request TTS file from Watson TTS."""
         response = self.service.synthesize(
-            message, accept=self.output_format, voice=self.default_voice
+            text=message, accept=self.output_format, voice=options[CONF_VOICE]
         ).get_result()
 
         return (CONTENT_TYPE_EXTENSIONS[self.output_format], response.content)

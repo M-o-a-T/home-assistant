@@ -6,17 +6,13 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.const import CONF_MONITORED_CONDITIONS, CONF_SCAN_INTERVAL
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 
-from . import server_id_valid
 from .const import (
-    CONF_MANUAL,
     CONF_SERVER_ID,
     CONF_SERVER_NAME,
     DEFAULT_NAME,
-    DEFAULT_SCAN_INTERVAL,
     DEFAULT_SERVER,
     DOMAIN,
 )
@@ -31,7 +27,7 @@ class SpeedTestFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(
         config_entry: config_entries.ConfigEntry,
-    ) -> config_entries.OptionsFlow:
+    ) -> SpeedTestOptionsFlowHandler:
         """Get the options flow for this handler."""
         return SpeedTestOptionsFlowHandler(config_entry)
 
@@ -46,23 +42,6 @@ class SpeedTestFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             return self.async_show_form(step_id="user")
 
         return self.async_create_entry(title=DEFAULT_NAME, data=user_input)
-
-    async def async_step_import(self, import_config):
-        """Import from config."""
-        if (
-            CONF_SERVER_ID in import_config
-            and not await self.hass.async_add_executor_job(
-                server_id_valid, import_config[CONF_SERVER_ID]
-            )
-        ):
-            return self.async_abort(reason="wrong_server_id")
-
-        import_config[CONF_SCAN_INTERVAL] = int(
-            import_config[CONF_SCAN_INTERVAL].total_seconds() / 60
-        )
-        import_config.pop(CONF_MONITORED_CONDITIONS)
-
-        return await self.async_step_user(user_input=import_config)
 
 
 class SpeedTestOptionsFlowHandler(config_entries.OptionsFlow):
@@ -91,31 +70,11 @@ class SpeedTestOptionsFlowHandler(config_entries.OptionsFlow):
 
         self._servers = self.hass.data[DOMAIN].servers
 
-        server = []
-        if self.config_entry.options.get(
-            CONF_SERVER_ID
-        ) and not self.config_entry.options.get(CONF_SERVER_NAME):
-            server = [
-                key
-                for (key, value) in self._servers.items()
-                if value.get("id") == self.config_entry.options[CONF_SERVER_ID]
-            ]
-        server_name = server[0] if server else DEFAULT_SERVER
-
         options = {
             vol.Optional(
                 CONF_SERVER_NAME,
-                default=self.config_entry.options.get(CONF_SERVER_NAME, server_name),
+                default=self.config_entry.options.get(CONF_SERVER_NAME, DEFAULT_SERVER),
             ): vol.In(self._servers.keys()),
-            vol.Optional(
-                CONF_SCAN_INTERVAL,
-                default=self.config_entry.options.get(
-                    CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
-                ),
-            ): int,
-            vol.Optional(
-                CONF_MANUAL, default=self.config_entry.options.get(CONF_MANUAL, False)
-            ): bool,
         }
 
         return self.async_show_form(

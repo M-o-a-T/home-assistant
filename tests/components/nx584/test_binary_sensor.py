@@ -6,7 +6,15 @@ import pytest
 import requests
 
 from homeassistant.components.nx584 import binary_sensor as nx584
+from homeassistant.core import HomeAssistant
 from homeassistant.setup import async_setup_component
+
+DEFAULT_CONFIG = {
+    "host": nx584.DEFAULT_HOST,
+    "port": nx584.DEFAULT_PORT,
+    "exclude_zones": [],
+    "zone_types": {},
+}
 
 
 class StopMe(Exception):
@@ -51,13 +59,8 @@ def client(fake_zones):
 def test_nx584_sensor_setup_defaults(mock_nx, mock_watcher, hass, fake_zones):
     """Test the setup with no configuration."""
     add_entities = mock.MagicMock()
-    config = {
-        "host": nx584.DEFAULT_HOST,
-        "port": nx584.DEFAULT_PORT,
-        "exclude_zones": [],
-        "zone_types": {},
-    }
-    assert nx584.setup_platform(hass, config, add_entities)
+    config = DEFAULT_CONFIG
+    nx584.setup_platform(hass, config, add_entities)
     mock_nx.assert_has_calls([mock.call(zone, "opening") for zone in fake_zones])
     assert add_entities.called
     assert nx584_client.Client.call_count == 1
@@ -76,7 +79,7 @@ def test_nx584_sensor_setup_full_config(mock_nx, mock_watcher, hass, fake_zones)
         "zone_types": {3: "motion"},
     }
     add_entities = mock.MagicMock()
-    assert nx584.setup_platform(hass, config, add_entities)
+    nx584.setup_platform(hass, config, add_entities)
     mock_nx.assert_has_calls(
         [
             mock.call(fake_zones[0], "opening"),
@@ -124,22 +127,26 @@ async def test_nx584_sensor_setup_with_exceptions(hass, exception_type):
 
 
 @pytest.mark.usefixtures("client")
-async def test_nx584_sensor_setup_version_too_old(hass):
+async def test_nx584_sensor_setup_version_too_old(hass: HomeAssistant) -> None:
     """Test if version is too old."""
     nx584_client.Client.return_value.get_version.return_value = "1.0"
     await _test_assert_graceful_fail(hass, {})
 
 
 @pytest.mark.usefixtures("client")
-def test_nx584_sensor_setup_no_zones(hass):
+def test_nx584_sensor_setup_no_zones(hass: HomeAssistant) -> None:
     """Test the setup with no zones."""
     nx584_client.Client.return_value.list_zones.return_value = []
     add_entities = mock.MagicMock()
-    assert nx584.setup_platform(hass, {}, add_entities)
+    nx584.setup_platform(
+        hass,
+        DEFAULT_CONFIG,
+        add_entities,
+    )
     assert not add_entities.called
 
 
-def test_nx584_zone_sensor_normal():
+def test_nx584_zone_sensor_normal() -> None:
     """Test for the NX584 zone sensor."""
     zone = {"number": 1, "name": "foo", "state": True}
     sensor = nx584.NX584ZoneSensor(zone, "motion")
@@ -147,9 +154,26 @@ def test_nx584_zone_sensor_normal():
     assert not sensor.should_poll
     assert sensor.is_on
     assert sensor.extra_state_attributes["zone_number"] == 1
+    assert not sensor.extra_state_attributes["bypassed"]
 
     zone["state"] = False
     assert not sensor.is_on
+
+
+def test_nx584_zone_sensor_bypassed() -> None:
+    """Test for the NX584 zone sensor."""
+    zone = {"number": 1, "name": "foo", "state": True, "bypassed": True}
+    sensor = nx584.NX584ZoneSensor(zone, "motion")
+    assert sensor.name == "foo"
+    assert not sensor.should_poll
+    assert sensor.is_on
+    assert sensor.extra_state_attributes["zone_number"] == 1
+    assert sensor.extra_state_attributes["bypassed"]
+
+    zone["state"] = False
+    zone["bypassed"] = False
+    assert not sensor.is_on
+    assert not sensor.extra_state_attributes["bypassed"]
 
 
 @mock.patch.object(nx584.NX584ZoneSensor, "schedule_update_ha_state")
@@ -175,7 +199,7 @@ def test_nx584_watcher_process_zone_event_missing_zone(mock_update):
     assert not mock_update.called
 
 
-def test_nx584_watcher_run_with_zone_events():
+def test_nx584_watcher_run_with_zone_events() -> None:
     """Test the zone events."""
     empty_me = [1, 2]
 

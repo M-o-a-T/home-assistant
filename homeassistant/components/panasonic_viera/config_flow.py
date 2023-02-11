@@ -1,7 +1,7 @@
 """Config flow for Panasonic Viera TV integration."""
 from functools import partial
 import logging
-from urllib.request import URLError
+from urllib.error import URLError
 
 from panasonic_viera import TV_TYPE_ENCRYPTED, RemoteControl, SOAPError
 import voluptuous as vol
@@ -30,7 +30,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the Panasonic Viera config flow."""
         self._data = {
             CONF_HOST: None,

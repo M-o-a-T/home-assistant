@@ -2,26 +2,36 @@
 from __future__ import annotations
 
 import asyncio
+from http import HTTPStatus
 import logging
 import os
 import re
 
 import aiohttp
 from aiohttp import web
-from aiohttp.hdrs import CONTENT_LENGTH, CONTENT_TYPE
+from aiohttp.client import ClientTimeout
+from aiohttp.hdrs import (
+    AUTHORIZATION,
+    CACHE_CONTROL,
+    CONTENT_ENCODING,
+    CONTENT_LENGTH,
+    CONTENT_TYPE,
+    TRANSFER_ENCODING,
+)
 from aiohttp.web_exceptions import HTTPBadGateway
-import async_timeout
+from multidict import istr
 
 from homeassistant.components.http import KEY_AUTHENTICATED, HomeAssistantView
 from homeassistant.components.onboarding import async_is_onboarded
-from homeassistant.const import HTTP_UNAUTHORIZED
+from homeassistant.core import HomeAssistant
 
-from .const import X_HASS_IS_ADMIN, X_HASS_USER_ID, X_HASSIO
+from .const import X_HASS_IS_ADMIN, X_HASS_USER_ID
 
 _LOGGER = logging.getLogger(__name__)
 
 MAX_UPLOAD_SIZE = 1024 * 1024 * 1024
 
+# pylint: disable=implicit-str-concat
 NO_TIMEOUT = re.compile(
     r"^(?:"
     r"|homeassistant/update"
@@ -29,19 +39,18 @@ NO_TIMEOUT = re.compile(
     r"|hassos/update/cli"
     r"|supervisor/update"
     r"|addons/[^/]+/(?:update|install|rebuild)"
-    r"|snapshots/.+/full"
-    r"|snapshots/.+/partial"
-    r"|snapshots/[^/]+/(?:upload|download)"
+    r"|backups/.+/full"
+    r"|backups/.+/partial"
+    r"|backups/[^/]+/(?:upload|download)"
     r")$"
 )
 
-NO_AUTH_ONBOARDING = re.compile(
-    r"^(?:" r"|supervisor/logs" r"|snapshots/[^/]+/.+" r")$"
-)
+NO_AUTH_ONBOARDING = re.compile(r"^(?:" r"|supervisor/logs" r"|backups/[^/]+/.+" r")$")
 
-NO_AUTH = re.compile(
-    r"^(?:" r"|app/.*" r"|addons/[^/]+/logo" r"|addons/[^/]+/icon" r")$"
-)
+NO_AUTH = re.compile(r"^(?:" r"|app/.*" r"|[store\/]*addons/[^/]+/(logo|icon)" r")$")
+
+NO_STORE = re.compile(r"^(?:" r"|app/entrypoint.js" r")$")
+# pylint: enable=implicit-str-concat
 
 
 class HassIOView(HomeAssistantView):
@@ -62,7 +71,7 @@ class HassIOView(HomeAssistantView):
         """Route data to Hass.io."""
         hass = request.app["hass"]
         if _need_auth(hass, path) and not request[KEY_AUTHENTICATED]:
-            return web.Response(status=HTTP_UNAUTHORIZED)
+            return web.Response(status=HTTPStatus.UNAUTHORIZED)
 
         return await self._command_proxy(path, request)
 
@@ -72,49 +81,32 @@ class HassIOView(HomeAssistantView):
 
     async def _command_proxy(
         self, path: str, request: web.Request
-    ) -> web.Response | web.StreamResponse:
+    ) -> web.StreamResponse:
         """Return a client request with proxy origin for Hass.io supervisor.
 
         This method is a coroutine.
         """
-        read_timeout = _get_timeout(path)
-        client_timeout = 10
-        data = None
         headers = _init_header(request)
-        if path == "snapshots/new/upload":
+        if path == "backups/new/upload":
             # We need to reuse the full content type that includes the boundary
             headers[
-                "Content-Type"
+                CONTENT_TYPE
             ] = request._stored_content_type  # pylint: disable=protected-access
 
-            # Snapshots are big, so we need to adjust the allowed size
-            request._client_max_size = (  # pylint: disable=protected-access
-                MAX_UPLOAD_SIZE
-            )
-            client_timeout = 300
-
         try:
-            with async_timeout.timeout(client_timeout):
-                data = await request.read()
-
-            method = getattr(self._websession, request.method.lower())
-            client = await method(
-                f"http://{self._host}/{path}",
-                data=data,
+            client = await self._websession.request(
+                method=request.method,
+                url=f"http://{self._host}/{path}",
+                params=request.query,
+                data=request.content,
                 headers=headers,
-                timeout=read_timeout,
+                timeout=_get_timeout(path),
             )
-
-            # Simple request
-            if int(client.headers.get(CONTENT_LENGTH, 0)) < 4194000:
-                # Return Response
-                body = await client.read()
-                return web.Response(
-                    content_type=client.content_type, status=client.status, body=body
-                )
 
             # Stream response
-            response = web.StreamResponse(status=client.status, headers=client.headers)
+            response = web.StreamResponse(
+                status=client.status, headers=_response_header(client, path)
+            )
             response.content_type = client.content_type
 
             await response.prepare(request)
@@ -132,30 +124,49 @@ class HassIOView(HomeAssistantView):
         raise HTTPBadGateway()
 
 
-def _init_header(request: web.Request) -> dict[str, str]:
+def _init_header(request: web.Request) -> dict[istr, str]:
     """Create initial header."""
     headers = {
-        X_HASSIO: os.environ.get("HASSIO_TOKEN", ""),
+        AUTHORIZATION: f"Bearer {os.environ.get('SUPERVISOR_TOKEN', '')}",
         CONTENT_TYPE: request.content_type,
     }
 
     # Add user data
-    user = request.get("hass_user")
-    if user is not None:
-        headers[X_HASS_USER_ID] = request["hass_user"].id
-        headers[X_HASS_IS_ADMIN] = str(int(request["hass_user"].is_admin))
+    if request.get("hass_user") is not None:
+        headers[istr(X_HASS_USER_ID)] = request["hass_user"].id
+        headers[istr(X_HASS_IS_ADMIN)] = str(int(request["hass_user"].is_admin))
 
     return headers
 
 
-def _get_timeout(path: str) -> int:
+def _response_header(response: aiohttp.ClientResponse, path: str) -> dict[str, str]:
+    """Create response header."""
+    headers = {}
+
+    for name, value in response.headers.items():
+        if name in (
+            TRANSFER_ENCODING,
+            CONTENT_LENGTH,
+            CONTENT_TYPE,
+            CONTENT_ENCODING,
+        ):
+            continue
+        headers[name] = value
+
+    if NO_STORE.match(path):
+        headers[CACHE_CONTROL] = "no-store, max-age=0"
+
+    return headers
+
+
+def _get_timeout(path: str) -> ClientTimeout:
     """Return timeout for a URL path."""
     if NO_TIMEOUT.match(path):
-        return 0
-    return 300
+        return ClientTimeout(connect=10, total=None)
+    return ClientTimeout(connect=10, total=300)
 
 
-def _need_auth(hass, path: str) -> bool:
+def _need_auth(hass: HomeAssistant, path: str) -> bool:
     """Return if a path need authentication."""
     if not async_is_onboarded(hass) and NO_AUTH_ONBOARDING.match(path):
         return False

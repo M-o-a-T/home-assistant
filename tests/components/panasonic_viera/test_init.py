@@ -1,5 +1,5 @@
 """Test the Panasonic Viera setup process."""
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from homeassistant.components.panasonic_viera.const import (
     ATTR_DEVICE_INFO,
@@ -9,6 +9,7 @@ from homeassistant.components.panasonic_viera.const import (
 )
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_HOST, STATE_UNAVAILABLE
+from homeassistant.core import HomeAssistant
 from homeassistant.setup import async_setup_component
 
 from .conftest import (
@@ -70,7 +71,9 @@ async def test_setup_entry_encrypted_missing_device_info(hass, mock_remote):
     assert state_remote.name == DEFAULT_NAME
 
 
-async def test_setup_entry_encrypted_missing_device_info_none(hass):
+async def test_setup_entry_encrypted_missing_device_info_none(
+    hass: HomeAssistant,
+) -> None:
     """Test setup with encrypted config entry and device info set to None."""
     mock_entry = MockConfigEntry(
         domain=DOMAIN,
@@ -130,7 +133,7 @@ async def test_setup_entry_unencrypted_missing_device_info(hass, mock_remote):
     mock_entry = MockConfigEntry(
         domain=DOMAIN,
         unique_id=MOCK_CONFIG_DATA[CONF_HOST],
-        data=MOCK_CONFIG_DATA,
+        data={**MOCK_CONFIG_DATA},
     )
 
     mock_entry.add_to_hass(hass)
@@ -151,12 +154,14 @@ async def test_setup_entry_unencrypted_missing_device_info(hass, mock_remote):
     assert state_remote.name == DEFAULT_NAME
 
 
-async def test_setup_entry_unencrypted_missing_device_info_none(hass):
+async def test_setup_entry_unencrypted_missing_device_info_none(
+    hass: HomeAssistant,
+) -> None:
     """Test setup with unencrypted config entry and device info set to None."""
     mock_entry = MockConfigEntry(
         domain=DOMAIN,
         unique_id=MOCK_CONFIG_DATA[CONF_HOST],
-        data=MOCK_CONFIG_DATA,
+        data={**MOCK_CONFIG_DATA},
     )
 
     mock_entry.add_to_hass(hass)
@@ -183,16 +188,23 @@ async def test_setup_entry_unencrypted_missing_device_info_none(hass):
         assert state_remote.name == DEFAULT_NAME
 
 
-async def test_setup_config_flow_initiated(hass):
+async def test_setup_config_flow_initiated(hass: HomeAssistant) -> None:
     """Test if config flow is initiated in setup."""
-    assert (
-        await async_setup_component(
-            hass,
-            DOMAIN,
-            {DOMAIN: {CONF_HOST: "0.0.0.0"}},
+    mock_remote = get_mock_remote()
+    mock_remote.get_device_info = Mock(side_effect=OSError)
+
+    with patch(
+        "homeassistant.components.panasonic_viera.config_flow.RemoteControl",
+        return_value=mock_remote,
+    ):
+        assert (
+            await async_setup_component(
+                hass,
+                DOMAIN,
+                {DOMAIN: {CONF_HOST: "0.0.0.0"}},
+            )
+            is True
         )
-        is True
-    )
 
     assert len(hass.config_entries.flow.async_progress()) == 1
 
@@ -200,7 +212,9 @@ async def test_setup_config_flow_initiated(hass):
 async def test_setup_unload_entry(hass, mock_remote):
     """Test if config entry is unloaded."""
     mock_entry = MockConfigEntry(
-        domain=DOMAIN, unique_id=MOCK_DEVICE_INFO[ATTR_UDN], data=MOCK_CONFIG_DATA
+        domain=DOMAIN,
+        unique_id=MOCK_DEVICE_INFO[ATTR_UDN],
+        data={**MOCK_CONFIG_DATA},
     )
 
     mock_entry.add_to_hass(hass)

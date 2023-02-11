@@ -1,15 +1,14 @@
 """Test Websocket API messages module."""
-
 from homeassistant.components.websocket_api.messages import (
     _cached_event_message as lru_event_cache,
     cached_event_message,
     message_to_json,
 )
 from homeassistant.const import EVENT_STATE_CHANGED
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
 
 
-async def test_cached_event_message(hass):
+async def test_cached_event_message(hass: HomeAssistant) -> None:
     """Test that we cache event messages."""
 
     events = []
@@ -47,7 +46,7 @@ async def test_cached_event_message(hass):
     assert cache_info.currsize == 2
 
 
-async def test_cached_event_message_with_different_idens(hass):
+async def test_cached_event_message_with_different_idens(hass: HomeAssistant) -> None:
     """Test that we cache event messages when the subscrition idens differ."""
 
     events = []
@@ -83,13 +82,13 @@ async def test_message_to_json(caplog):
 
     json_str = message_to_json({"id": 1, "message": "xyz"})
 
-    assert json_str == '{"id": 1, "message": "xyz"}'
+    assert json_str == '{"id":1,"message":"xyz"}'
 
     json_str2 = message_to_json({"id": 1, "message": _Unserializeable()})
 
     assert (
         json_str2
-        == '{"id": 1, "type": "result", "success": false, "error": {"code": "unknown_error", "message": "Invalid JSON in response"}}'
+        == '{"id":1,"type":"result","success":false,"error":{"code":"unknown_error","message":"Invalid JSON in response"}}'
     )
     assert "Unable to serialize to JSON" in caplog.text
 

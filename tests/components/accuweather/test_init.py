@@ -8,13 +8,15 @@ from accuweather import ApiError
 from homeassistant.components.accuweather.const import DOMAIN
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import STATE_UNAVAILABLE
+from homeassistant.core import HomeAssistant
 from homeassistant.util.dt import utcnow
 
+from . import init_integration
+
 from tests.common import MockConfigEntry, async_fire_time_changed, load_fixture
-from tests.components.accuweather import init_integration
 
 
-async def test_async_setup_entry(hass):
+async def test_async_setup_entry(hass: HomeAssistant) -> None:
     """Test a successful setup entry."""
     await init_integration(hass)
 
@@ -24,7 +26,7 @@ async def test_async_setup_entry(hass):
     assert state.state == "sunny"
 
 
-async def test_config_not_ready(hass):
+async def test_config_not_ready(hass: HomeAssistant) -> None:
     """Test for setup failure if connection to AccuWeather is missing."""
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -47,7 +49,7 @@ async def test_config_not_ready(hass):
         assert entry.state is ConfigEntryState.SETUP_RETRY
 
 
-async def test_unload_entry(hass):
+async def test_unload_entry(hass: HomeAssistant) -> None:
     """Test successful unload of entry."""
     entry = await init_integration(hass)
 
@@ -61,7 +63,7 @@ async def test_unload_entry(hass):
     assert not hass.data.get(DOMAIN)
 
 
-async def test_update_interval(hass):
+async def test_update_interval(hass: HomeAssistant) -> None:
     """Test correct update interval."""
     entry = await init_integration(hass)
 
@@ -74,7 +76,6 @@ async def test_update_interval(hass):
         "homeassistant.components.accuweather.AccuWeather.async_get_current_conditions",
         return_value=current,
     ) as mock_current:
-
         assert mock_current.call_count == 0
 
         async_fire_time_changed(hass, future)
@@ -83,7 +84,7 @@ async def test_update_interval(hass):
         assert mock_current.call_count == 1
 
 
-async def test_update_interval_forecast(hass):
+async def test_update_interval_forecast(hass: HomeAssistant) -> None:
     """Test correct update interval when forecast is True."""
     entry = await init_integration(hass, forecast=True)
 
@@ -100,7 +101,6 @@ async def test_update_interval_forecast(hass):
         "homeassistant.components.accuweather.AccuWeather.async_get_forecast",
         return_value=forecast,
     ) as mock_forecast:
-
         assert mock_current.call_count == 0
         assert mock_forecast.call_count == 0
 

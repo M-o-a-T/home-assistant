@@ -4,7 +4,7 @@ import logging
 from srpenergy.client import SrpEnergyClient
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_ID, CONF_PASSWORD, CONF_USERNAME
+from homeassistant.const import CONF_ID, CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 
@@ -13,7 +13,7 @@ from .const import SRP_ENERGY_DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 
-PLATFORMS = ["sensor"]
+PLATFORMS = [Platform.SENSOR]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -26,16 +26,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             entry.data.get(CONF_PASSWORD),
         )
         hass.data[SRP_ENERGY_DOMAIN] = srp_energy_client
-    except (Exception) as ex:
+    except Exception as ex:
         _LOGGER.error("Unable to connect to Srp Energy: %s", str(ex))
         raise ConfigEntryNotReady from ex
 
-    hass.config_entries.async_setup_platforms(entry, PLATFORMS)
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     # unload srp client
     hass.data[SRP_ENERGY_DOMAIN] = None

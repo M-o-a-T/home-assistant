@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import voluptuous as vol
 
-from homeassistant.components.automation import AutomationActionType
 from homeassistant.components.device_automation import DEVICE_TRIGGER_BASE_SCHEMA
 from homeassistant.const import (
     ATTR_ENTITY_ID,
@@ -15,6 +14,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import CALLBACK_TYPE, Event, HassJob, HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv, entity_registry
+from homeassistant.helpers.trigger import TriggerActionType, TriggerInfo
 from homeassistant.helpers.typing import ConfigType
 
 from .const import DOMAIN, EVENT_TURN_OFF, EVENT_TURN_ON
@@ -29,9 +29,11 @@ TRIGGER_SCHEMA = DEVICE_TRIGGER_BASE_SCHEMA.extend(
 )
 
 
-async def async_get_triggers(hass: HomeAssistant, device_id: str) -> list[dict]:
+async def async_get_triggers(
+    hass: HomeAssistant, device_id: str
+) -> list[dict[str, str]]:
     """List device triggers for Kodi devices."""
-    registry = await entity_registry.async_get_registry(hass)
+    registry = entity_registry.async_get(hass)
     triggers = []
 
     # Get all the integrations entities for this device
@@ -63,11 +65,11 @@ async def async_get_triggers(hass: HomeAssistant, device_id: str) -> list[dict]:
 def _attach_trigger(
     hass: HomeAssistant,
     config: ConfigType,
-    action: AutomationActionType,
+    action: TriggerActionType,
     event_type,
-    automation_info: dict,
+    trigger_info: TriggerInfo,
 ):
-    trigger_data = automation_info.get("trigger_data", {}) if automation_info else {}
+    trigger_data = trigger_info["trigger_data"]
     job = HassJob(action)
 
     @callback
@@ -85,14 +87,14 @@ def _attach_trigger(
 async def async_attach_trigger(
     hass: HomeAssistant,
     config: ConfigType,
-    action: AutomationActionType,
-    automation_info: dict,
+    action: TriggerActionType,
+    trigger_info: TriggerInfo,
 ) -> CALLBACK_TYPE:
     """Attach a trigger."""
     if config[CONF_TYPE] == "turn_on":
-        return _attach_trigger(hass, config, action, EVENT_TURN_ON, automation_info)
+        return _attach_trigger(hass, config, action, EVENT_TURN_ON, trigger_info)
 
     if config[CONF_TYPE] == "turn_off":
-        return _attach_trigger(hass, config, action, EVENT_TURN_OFF, automation_info)
+        return _attach_trigger(hass, config, action, EVENT_TURN_OFF, trigger_info)
 
     return lambda: None

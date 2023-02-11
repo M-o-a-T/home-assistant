@@ -5,11 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from homeassistant.components import person
-from homeassistant.components.device_tracker import (
-    ATTR_SOURCE_TYPE,
-    SOURCE_TYPE_GPS,
-    SOURCE_TYPE_ROUTER,
-)
+from homeassistant.components.device_tracker import ATTR_SOURCE_TYPE, SourceType
 from homeassistant.components.person import ATTR_SOURCE, ATTR_USER_ID, DOMAIN
 from homeassistant.const import (
     ATTR_ENTITY_PICTURE,
@@ -21,7 +17,7 @@ from homeassistant.const import (
     SERVICE_RELOAD,
     STATE_UNKNOWN,
 )
-from homeassistant.core import Context, CoreState, State
+from homeassistant.core import Context, CoreState, HomeAssistant, State
 from homeassistant.helpers import collection, entity_registry as er
 from homeassistant.setup import async_setup_component
 
@@ -65,7 +61,7 @@ def storage_setup(hass, hass_storage, hass_admin_user):
     assert hass.loop.run_until_complete(async_setup_component(hass, DOMAIN, {}))
 
 
-async def test_minimal_setup(hass):
+async def test_minimal_setup(hass: HomeAssistant) -> None:
     """Test minimal config with only name."""
     config = {DOMAIN: {"id": "1234", "name": "test person"}}
     assert await async_setup_component(hass, DOMAIN, config)
@@ -79,13 +75,13 @@ async def test_minimal_setup(hass):
     assert state.attributes.get(ATTR_ENTITY_PICTURE) is None
 
 
-async def test_setup_no_id(hass):
+async def test_setup_no_id(hass: HomeAssistant) -> None:
     """Test config with no id."""
     config = {DOMAIN: {"name": "test user"}}
     assert not await async_setup_component(hass, DOMAIN, config)
 
 
-async def test_setup_no_name(hass):
+async def test_setup_no_name(hass: HomeAssistant) -> None:
     """Test config with no name."""
     config = {DOMAIN: {"id": "1234"}}
     assert not await async_setup_component(hass, DOMAIN, config)
@@ -208,9 +204,7 @@ async def test_setup_two_trackers(hass, hass_admin_user):
 
     hass.bus.async_fire(EVENT_HOMEASSISTANT_START)
     await hass.async_block_till_done()
-    hass.states.async_set(
-        DEVICE_TRACKER, "home", {ATTR_SOURCE_TYPE: SOURCE_TYPE_ROUTER}
-    )
+    hass.states.async_set(DEVICE_TRACKER, "home", {ATTR_SOURCE_TYPE: SourceType.ROUTER})
     await hass.async_block_till_done()
 
     state = hass.states.get("person.tracked_person")
@@ -229,12 +223,12 @@ async def test_setup_two_trackers(hass, hass_admin_user):
             ATTR_LATITUDE: 12.123456,
             ATTR_LONGITUDE: 13.123456,
             ATTR_GPS_ACCURACY: 12,
-            ATTR_SOURCE_TYPE: SOURCE_TYPE_GPS,
+            ATTR_SOURCE_TYPE: SourceType.GPS,
         },
     )
     await hass.async_block_till_done()
     hass.states.async_set(
-        DEVICE_TRACKER, "not_home", {ATTR_SOURCE_TYPE: SOURCE_TYPE_ROUTER}
+        DEVICE_TRACKER, "not_home", {ATTR_SOURCE_TYPE: SourceType.ROUTER}
     )
     await hass.async_block_till_done()
 
@@ -247,22 +241,16 @@ async def test_setup_two_trackers(hass, hass_admin_user):
     assert state.attributes.get(ATTR_SOURCE) == DEVICE_TRACKER_2
     assert state.attributes.get(ATTR_USER_ID) == user_id
 
-    hass.states.async_set(
-        DEVICE_TRACKER_2, "zone1", {ATTR_SOURCE_TYPE: SOURCE_TYPE_GPS}
-    )
+    hass.states.async_set(DEVICE_TRACKER_2, "zone1", {ATTR_SOURCE_TYPE: SourceType.GPS})
     await hass.async_block_till_done()
 
     state = hass.states.get("person.tracked_person")
     assert state.state == "zone1"
     assert state.attributes.get(ATTR_SOURCE) == DEVICE_TRACKER_2
 
-    hass.states.async_set(
-        DEVICE_TRACKER, "home", {ATTR_SOURCE_TYPE: SOURCE_TYPE_ROUTER}
-    )
+    hass.states.async_set(DEVICE_TRACKER, "home", {ATTR_SOURCE_TYPE: SourceType.ROUTER})
     await hass.async_block_till_done()
-    hass.states.async_set(
-        DEVICE_TRACKER_2, "zone2", {ATTR_SOURCE_TYPE: SOURCE_TYPE_GPS}
-    )
+    hass.states.async_set(DEVICE_TRACKER_2, "zone2", {ATTR_SOURCE_TYPE: SourceType.GPS})
     await hass.async_block_till_done()
 
     state = hass.states.get("person.tracked_person")
@@ -364,7 +352,7 @@ async def test_duplicate_ids(hass, hass_admin_user):
     assert hass.states.get("person.test_user_2") is None
 
 
-async def test_create_person_during_run(hass):
+async def test_create_person_during_run(hass: HomeAssistant) -> None:
     """Test that person is updated if created while hass is running."""
     config = {DOMAIN: {}}
     assert await async_setup_component(hass, DOMAIN, config)
@@ -783,3 +771,59 @@ async def test_person_storage_fixing_device_trackers(storage_collection):
         await storage_collection.async_load()
 
     assert storage_collection.data["bla"]["device_trackers"] == []
+
+
+async def test_persons_with_entity(hass: HomeAssistant) -> None:
+    """Test finding persons with an entity."""
+    assert await async_setup_component(
+        hass,
+        "person",
+        {
+            "person": [
+                {
+                    "id": "abcd",
+                    "name": "Paulus",
+                    "device_trackers": [
+                        "device_tracker.paulus_iphone",
+                        "device_tracker.paulus_ipad",
+                    ],
+                },
+                {
+                    "id": "efgh",
+                    "name": "Anne Therese",
+                    "device_trackers": [
+                        "device_tracker.at_pixel",
+                    ],
+                },
+            ]
+        },
+    )
+
+    assert person.persons_with_entity(hass, "device_tracker.paulus_iphone") == [
+        "person.paulus"
+    ]
+
+
+async def test_entities_in_person(hass: HomeAssistant) -> None:
+    """Test finding entities tracked by person."""
+    assert await async_setup_component(
+        hass,
+        "person",
+        {
+            "person": [
+                {
+                    "id": "abcd",
+                    "name": "Paulus",
+                    "device_trackers": [
+                        "device_tracker.paulus_iphone",
+                        "device_tracker.paulus_ipad",
+                    ],
+                }
+            ]
+        },
+    )
+
+    assert person.entities_in_person(hass, "person.paulus") == [
+        "device_tracker.paulus_iphone",
+        "device_tracker.paulus_ipad",
+    ]

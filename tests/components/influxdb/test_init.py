@@ -1,6 +1,7 @@
 """The tests for the InfluxDB component."""
 from dataclasses import dataclass
 import datetime
+from http import HTTPStatus
 from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
@@ -71,7 +72,7 @@ def get_mock_call_fixture(request):
 
     if request.param == influxdb.API_VERSION_2:
         return lambda body, precision=None: v2_call(body, precision)
-    # pylint: disable=unnecessary-lambda
+    # pylint: disable-next=unnecessary-lambda
     return lambda body, precision=None: call(body, time_precision=precision)
 
 
@@ -556,7 +557,7 @@ async def test_event_listener_states(
     """Test the event listener against ignored states."""
     handler_method = await _setup(hass, mock_client, config_ext, get_write_api)
 
-    for state_state in (1, "unknown", "", "unavailable"):
+    for state_state in (1, "unknown", "", "unavailable", None):
         state = MagicMock(
             state=state_state,
             domain="fake",
@@ -865,7 +866,7 @@ async def test_event_listener_filtered_allowlist(
         FilterTest("fake.excluded", False),
         FilterTest("another_fake.denied", False),
         FilterTest("fake.excluded_entity", False),
-        FilterTest("another_fake.included_entity", False),
+        FilterTest("another_fake.included_entity", True),
     ]
     execute_filter_test(hass, tests, handler_method, write_api, get_mock_call)
 
@@ -1456,7 +1457,7 @@ async def test_event_listener_scheduled_write(
     )
     event = MagicMock(data={"new_state": state}, time_fired=12345)
     write_api = get_write_api(mock_client)
-    write_api.side_effect = IOError("foo")
+    write_api.side_effect = OSError("foo")
 
     # Write fails
     with patch.object(influxdb.time, "sleep") as mock_sleep:
@@ -1607,7 +1608,7 @@ async def test_event_listener_attribute_name_conflict(
             BASE_V2_CONFIG,
             _get_write_api_mock_v2,
             influxdb.API_VERSION_2,
-            influxdb.ApiException(),
+            influxdb.ApiException(http_resp=MagicMock()),
         ),
     ],
     indirect=["mock_client", "get_mock_call"],
@@ -1640,14 +1641,16 @@ async def test_connection_failure_on_startup(
             BASE_V1_CONFIG,
             _get_write_api_mock_v1,
             influxdb.DEFAULT_API_VERSION,
-            influxdb.exceptions.InfluxDBClientError("fail", code=400),
+            influxdb.exceptions.InfluxDBClientError(
+                "fail", code=HTTPStatus.BAD_REQUEST
+            ),
         ),
         (
             influxdb.API_VERSION_2,
             BASE_V2_CONFIG,
             _get_write_api_mock_v2,
             influxdb.API_VERSION_2,
-            influxdb.ApiException(status=400),
+            influxdb.ApiException(status=HTTPStatus.BAD_REQUEST, http_resp=MagicMock()),
         ),
     ],
     indirect=["mock_client", "get_mock_call"],
@@ -1655,8 +1658,7 @@ async def test_connection_failure_on_startup(
 async def test_invalid_inputs_error(
     hass, caplog, mock_client, config_ext, get_write_api, get_mock_call, test_exception
 ):
-    """
-    Test the event listener when influx returns invalid inputs on write.
+    """Test the event listener when influx returns invalid inputs on write.
 
     The difference in error handling in this case is that we do not sleep
     and try again, if an input is invalid it is logged and dropped.

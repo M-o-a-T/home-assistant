@@ -18,6 +18,7 @@ from homeassistant.components.homekit.const import (
     TYPE_VALVE,
 )
 import homeassistant.components.media_player.const as media_player_c
+from homeassistant.components.sensor import SensorDeviceClass
 import homeassistant.components.vacuum as vacuum
 from homeassistant.const import (
     ATTR_CODE,
@@ -26,12 +27,10 @@ from homeassistant.const import (
     ATTR_UNIT_OF_MEASUREMENT,
     CONF_NAME,
     CONF_TYPE,
-    DEVICE_CLASS_CO,
-    DEVICE_CLASS_CO2,
     LIGHT_LUX,
     PERCENTAGE,
-    TEMP_CELSIUS,
-    TEMP_FAHRENHEIT,
+    STATE_UNKNOWN,
+    UnitOfTemperature,
 )
 from homeassistant.core import State
 
@@ -47,7 +46,7 @@ def test_not_supported(caplog):
     assert "invalid aid" in caplog.records[0].msg
 
 
-def test_not_supported_media_player():
+def test_not_supported_media_player() -> None:
     """Test if mode isn't supported and if no supported modes."""
     # selected mode for entity not supported
     config = {CONF_FEATURE_LIST: {FEATURE_ON_OFF: None}}
@@ -149,6 +148,18 @@ def test_types(type_name, entity_id, state, attrs, config):
             "open",
             {ATTR_SUPPORTED_FEATURES: (cover.SUPPORT_OPEN | cover.SUPPORT_CLOSE)},
         ),
+        (
+            "WindowCoveringBasic",
+            "cover.open_window",
+            "open",
+            {
+                ATTR_SUPPORTED_FEATURES: (
+                    cover.SUPPORT_OPEN
+                    | cover.SUPPORT_CLOSE
+                    | cover.SUPPORT_SET_TILT_POSITION
+                )
+            },
+        ),
     ],
 )
 def test_type_covers(type_name, entity_id, state, attrs):
@@ -168,8 +179,8 @@ def test_type_covers(type_name, entity_id, state, attrs):
             "media_player.test",
             "on",
             {
-                ATTR_SUPPORTED_FEATURES: media_player_c.SUPPORT_TURN_ON
-                | media_player_c.SUPPORT_TURN_OFF
+                ATTR_SUPPORTED_FEATURES: media_player_c.MediaPlayerEntityFeature.TURN_ON
+                | media_player_c.MediaPlayerEntityFeature.TURN_OFF
             },
             {CONF_FEATURE_LIST: {FEATURE_ON_OFF: None}},
         ),
@@ -200,20 +211,44 @@ def test_type_media_player(type_name, entity_id, state, attrs, config):
         ("BinarySensor", "binary_sensor.opening", "on", {ATTR_DEVICE_CLASS: "opening"}),
         ("BinarySensor", "device_tracker.someone", "not_home", {}),
         ("BinarySensor", "person.someone", "home", {}),
-        ("AirQualitySensor", "sensor.air_quality_pm25", "40", {}),
-        ("AirQualitySensor", "sensor.air_quality", "40", {ATTR_DEVICE_CLASS: "pm25"}),
+        ("PM10Sensor", "sensor.air_quality_pm10", "30", {}),
+        (
+            "PM10Sensor",
+            "sensor.air_quality",
+            "30",
+            {ATTR_DEVICE_CLASS: "pm10"},
+        ),
+        ("PM25Sensor", "sensor.air_quality_pm25", "40", {}),
+        (
+            "PM25Sensor",
+            "sensor.air_quality",
+            "40",
+            {ATTR_DEVICE_CLASS: "pm25"},
+        ),
+        (
+            "NitrogenDioxideSensor",
+            "sensor.air_quality_nitrogen_dioxide",
+            "50",
+            {ATTR_DEVICE_CLASS: SensorDeviceClass.NITROGEN_DIOXIDE},
+        ),
+        (
+            "VolatileOrganicCompoundsSensor",
+            "sensor.air_quality_volatile_organic_compounds",
+            "55",
+            {ATTR_DEVICE_CLASS: SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS},
+        ),
         (
             "CarbonMonoxideSensor",
             "sensor.co",
             "2",
-            {ATTR_DEVICE_CLASS: DEVICE_CLASS_CO},
+            {ATTR_DEVICE_CLASS: SensorDeviceClass.CO},
         ),
         ("CarbonDioxideSensor", "sensor.airmeter_co2", "500", {}),
         (
             "CarbonDioxideSensor",
             "sensor.co2",
             "500",
-            {ATTR_DEVICE_CLASS: DEVICE_CLASS_CO2},
+            {ATTR_DEVICE_CLASS: SensorDeviceClass.CO2},
         ),
         (
             "HumiditySensor",
@@ -222,7 +257,6 @@ def test_type_media_player(type_name, entity_id, state, attrs, config):
             {ATTR_DEVICE_CLASS: "humidity", ATTR_UNIT_OF_MEASUREMENT: PERCENTAGE},
         ),
         ("LightSensor", "sensor.light", "900", {ATTR_DEVICE_CLASS: "illuminance"}),
-        ("LightSensor", "sensor.light", "900", {ATTR_UNIT_OF_MEASUREMENT: "lm"}),
         ("LightSensor", "sensor.light", "900", {ATTR_UNIT_OF_MEASUREMENT: LIGHT_LUX}),
         (
             "TemperatureSensor",
@@ -234,13 +268,13 @@ def test_type_media_player(type_name, entity_id, state, attrs, config):
             "TemperatureSensor",
             "sensor.temperature",
             "23",
-            {ATTR_UNIT_OF_MEASUREMENT: TEMP_CELSIUS},
+            {ATTR_UNIT_OF_MEASUREMENT: UnitOfTemperature.CELSIUS},
         ),
         (
             "TemperatureSensor",
             "sensor.temperature",
             "74",
-            {ATTR_UNIT_OF_MEASUREMENT: TEMP_FAHRENHEIT},
+            {ATTR_UNIT_OF_MEASUREMENT: UnitOfTemperature.FAHRENHEIT},
         ),
     ],
 )
@@ -258,10 +292,14 @@ def test_type_sensors(type_name, entity_id, state, attrs):
     [
         ("Outlet", "switch.test", "on", {}, {CONF_TYPE: TYPE_OUTLET}),
         ("Switch", "automation.test", "on", {}, {}),
+        ("Switch", "button.test", STATE_UNKNOWN, {}, {}),
         ("Switch", "input_boolean.test", "on", {}, {}),
+        ("Switch", "input_button.test", STATE_UNKNOWN, {}, {}),
         ("Switch", "remote.test", "on", {}, {}),
         ("Switch", "scene.test", "on", {}, {}),
         ("Switch", "script.test", "on", {}, {}),
+        ("SelectSwitch", "input_select.test", "option1", {}, {}),
+        ("SelectSwitch", "select.test", "option1", {}, {}),
         ("Switch", "switch.test", "on", {}, {}),
         ("Switch", "switch.test", "on", {}, {CONF_TYPE: TYPE_SWITCH}),
         ("Valve", "switch.test", "on", {}, {CONF_TYPE: TYPE_FAUCET}),

@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 import logging
-from types import MappingProxyType
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 from homeassistant.const import (
     ATTR_ENTITY_ID,
@@ -32,17 +31,9 @@ from . import (
     ATTR_RGBWW_COLOR,
     ATTR_TRANSITION,
     ATTR_WHITE,
-    ATTR_WHITE_VALUE,
     ATTR_XY_COLOR,
-    COLOR_MODE_COLOR_TEMP,
-    COLOR_MODE_HS,
-    COLOR_MODE_RGB,
-    COLOR_MODE_RGBW,
-    COLOR_MODE_RGBWW,
-    COLOR_MODE_UNKNOWN,
-    COLOR_MODE_WHITE,
-    COLOR_MODE_XY,
     DOMAIN,
+    ColorMode,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -54,7 +45,6 @@ ATTR_GROUP = [
     ATTR_BRIGHTNESS_PCT,
     ATTR_EFFECT,
     ATTR_FLASH,
-    ATTR_WHITE_VALUE,
     ATTR_TRANSITION,
 ]
 
@@ -71,14 +61,22 @@ COLOR_GROUP = [
     ATTR_KELVIN,
 ]
 
+
+class ColorModeAttr(NamedTuple):
+    """Map service data parameter to state attribute for a color mode."""
+
+    parameter: str
+    state_attr: str
+
+
 COLOR_MODE_TO_ATTRIBUTE = {
-    COLOR_MODE_COLOR_TEMP: (ATTR_COLOR_TEMP, ATTR_COLOR_TEMP),
-    COLOR_MODE_HS: (ATTR_HS_COLOR, ATTR_HS_COLOR),
-    COLOR_MODE_RGB: (ATTR_RGB_COLOR, ATTR_RGB_COLOR),
-    COLOR_MODE_RGBW: (ATTR_RGBW_COLOR, ATTR_RGBW_COLOR),
-    COLOR_MODE_RGBWW: (ATTR_RGBWW_COLOR, ATTR_RGBWW_COLOR),
-    COLOR_MODE_WHITE: (ATTR_WHITE, ATTR_BRIGHTNESS),
-    COLOR_MODE_XY: (ATTR_XY_COLOR, ATTR_XY_COLOR),
+    ColorMode.COLOR_TEMP: ColorModeAttr(ATTR_COLOR_TEMP, ATTR_COLOR_TEMP),
+    ColorMode.HS: ColorModeAttr(ATTR_HS_COLOR, ATTR_HS_COLOR),
+    ColorMode.RGB: ColorModeAttr(ATTR_RGB_COLOR, ATTR_RGB_COLOR),
+    ColorMode.RGBW: ColorModeAttr(ATTR_RGBW_COLOR, ATTR_RGBW_COLOR),
+    ColorMode.RGBWW: ColorModeAttr(ATTR_RGBWW_COLOR, ATTR_RGBWW_COLOR),
+    ColorMode.WHITE: ColorModeAttr(ATTR_WHITE, ATTR_BRIGHTNESS),
+    ColorMode.XY: ColorModeAttr(ATTR_XY_COLOR, ATTR_XY_COLOR),
 }
 
 DEPRECATED_GROUP = [
@@ -91,18 +89,19 @@ DEPRECATED_GROUP = [
 ]
 
 DEPRECATION_WARNING = (
-    "The use of other attributes than device state attributes is deprecated and will be removed in a future release. "
-    "Invalid attributes are %s. Read the logs for further details: https://www.home-assistant.io/integrations/scene/"
+    "The use of other attributes than device state attributes is deprecated and will be"
+    " removed in a future release. Invalid attributes are %s. Read the logs for further"
+    " details: https://www.home-assistant.io/integrations/scene/"
 )
 
 
 def _color_mode_same(cur_state: State, state: State) -> bool:
     """Test if color_mode is same."""
-    cur_color_mode = cur_state.attributes.get(ATTR_COLOR_MODE, COLOR_MODE_UNKNOWN)
-    saved_color_mode = state.attributes.get(ATTR_COLOR_MODE, COLOR_MODE_UNKNOWN)
+    cur_color_mode = cur_state.attributes.get(ATTR_COLOR_MODE, ColorMode.UNKNOWN)
+    saved_color_mode = state.attributes.get(ATTR_COLOR_MODE, ColorMode.UNKNOWN)
 
     # Guard for scenes etc. which where created before color modes were introduced
-    if saved_color_mode == COLOR_MODE_UNKNOWN:
+    if saved_color_mode == ColorMode.UNKNOWN:
         return True
     return cast(bool, cur_color_mode == saved_color_mode)
 
@@ -115,9 +114,7 @@ async def _async_reproduce_state(
     reproduce_options: dict[str, Any] | None = None,
 ) -> None:
     """Reproduce a single state."""
-    cur_state = hass.states.get(state.entity_id)
-
-    if cur_state is None:
+    if (cur_state := hass.states.get(state.entity_id)) is None:
         _LOGGER.warning("Unable to find entity %s", state.entity_id)
         return
 
@@ -156,23 +153,22 @@ async def _async_reproduce_state(
                 service_data[attr] = state.attributes[attr]
 
         if (
-            state.attributes.get(ATTR_COLOR_MODE, COLOR_MODE_UNKNOWN)
-            != COLOR_MODE_UNKNOWN
+            state.attributes.get(ATTR_COLOR_MODE, ColorMode.UNKNOWN)
+            != ColorMode.UNKNOWN
         ):
-            # Remove deprecated white value if we got a valid color mode
-            service_data.pop(ATTR_WHITE_VALUE, None)
             color_mode = state.attributes[ATTR_COLOR_MODE]
-            if parameter_state := COLOR_MODE_TO_ATTRIBUTE.get(color_mode):
-                parameter, state_attr = parameter_state
-                if state_attr not in state.attributes:
+            if color_mode_attr := COLOR_MODE_TO_ATTRIBUTE.get(color_mode):
+                if color_mode_attr.state_attr not in state.attributes:
                     _LOGGER.warning(
                         "Color mode %s specified but attribute %s missing for: %s",
                         color_mode,
-                        state_attr,
+                        color_mode_attr.state_attr,
                         state.entity_id,
                     )
                     return
-                service_data[parameter] = state.attributes[state_attr]
+                service_data[color_mode_attr.parameter] = state.attributes[
+                    color_mode_attr.state_attr
+                ]
         else:
             # Fall back to Choosing the first color that is specified
             for color_attr in COLOR_GROUP:
@@ -206,8 +202,6 @@ async def async_reproduce_states(
     )
 
 
-def check_attr_equal(
-    attr1: MappingProxyType, attr2: MappingProxyType, attr_str: str
-) -> bool:
+def check_attr_equal(attr1: Mapping, attr2: Mapping, attr_str: str) -> bool:
     """Return true if the given attributes are equal."""
     return attr1.get(attr_str) == attr2.get(attr_str)

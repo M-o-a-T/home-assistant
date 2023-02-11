@@ -62,8 +62,7 @@ async def _validate_input(data):
 
 
 def _make_url_from_data(data):
-    host = data.get(CONF_HOST)
-    if host:
+    if host := data.get(CONF_HOST):
         return host
 
     protocol = PROTOCOL_MAP[data[CONF_PROTOCOL]]
@@ -76,7 +75,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the UPB config flow."""
         self.importing = False
 

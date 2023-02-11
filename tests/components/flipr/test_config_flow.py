@@ -4,9 +4,10 @@ from unittest.mock import patch
 import pytest
 from requests.exceptions import HTTPError, Timeout
 
-from homeassistant import config_entries, data_entry_flow, setup
+from homeassistant import config_entries, data_entry_flow
 from homeassistant.components.flipr.const import CONF_FLIPR_ID, DOMAIN
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from homeassistant.core import HomeAssistant
 
 
 @pytest.fixture(name="mock_setup")
@@ -19,13 +20,13 @@ def mock_setups():
         yield
 
 
-async def test_show_form(hass):
+async def test_show_form(hass: HomeAssistant) -> None:
     """Test we get the form."""
-    await setup.async_setup_component(hass, "persistent_notification", {})
+
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
-    assert result["type"] == data_entry_flow.RESULT_TYPE_FORM
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
     assert result["step_id"] == config_entries.SOURCE_USER
 
 
@@ -67,7 +68,7 @@ async def test_nominal_case(hass, mock_setup):
 
     assert len(mock_flipr_client.mock_calls) == 1
 
-    assert result["type"] == data_entry_flow.RESULT_TYPE_CREATE_ENTRY
+    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
     assert result["title"] == "flipid"
     assert result["data"] == {
         CONF_EMAIL: "dummylogin",
@@ -91,7 +92,7 @@ async def test_multiple_flip_id(hass, mock_setup):
             },
         )
 
-        assert result["type"] == data_entry_flow.RESULT_TYPE_FORM
+        assert result["type"] == data_entry_flow.FlowResultType.FORM
         assert result["step_id"] == "flipr_id"
 
         result = await hass.config_entries.flow.async_configure(
@@ -101,7 +102,7 @@ async def test_multiple_flip_id(hass, mock_setup):
 
     assert len(mock_flipr_client.mock_calls) == 1
 
-    assert result["type"] == data_entry_flow.RESULT_TYPE_CREATE_ENTRY
+    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
     assert result["title"] == "FLIP2"
     assert result["data"] == {
         CONF_EMAIL: "dummylogin",

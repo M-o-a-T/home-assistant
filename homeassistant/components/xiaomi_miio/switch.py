@@ -1,54 +1,111 @@
 """Support for Xiaomi Smart WiFi Socket and Smart Power Strip."""
+from __future__ import annotations
+
 import asyncio
 from dataclasses import dataclass
-from enum import Enum
 from functools import partial
 import logging
+from typing import Any
 
 from miio import AirConditioningCompanionV3, ChuangmiPlug, DeviceException, PowerStrip
 from miio.powerstrip import PowerMode
 import voluptuous as vol
 
 from homeassistant.components.switch import (
-    DEVICE_CLASS_SWITCH,
-    PLATFORM_SCHEMA,
+    SwitchDeviceClass,
     SwitchEntity,
+    SwitchEntityDescription,
 )
-from homeassistant.config_entries import SOURCE_IMPORT
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_ENTITY_ID,
     ATTR_MODE,
     ATTR_TEMPERATURE,
     CONF_HOST,
-    CONF_NAME,
+    CONF_MODEL,
     CONF_TOKEN,
+    EntityCategory,
 )
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, ServiceCall, callback
 import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     CONF_DEVICE,
     CONF_FLOW_TYPE,
     CONF_GATEWAY,
-    CONF_MODEL,
     DOMAIN,
+    FEATURE_FLAGS_AIRFRESH,
+    FEATURE_FLAGS_AIRFRESH_A1,
+    FEATURE_FLAGS_AIRFRESH_T2017,
+    FEATURE_FLAGS_AIRFRESH_VA4,
     FEATURE_FLAGS_AIRHUMIDIFIER,
     FEATURE_FLAGS_AIRHUMIDIFIER_CA4,
     FEATURE_FLAGS_AIRHUMIDIFIER_CA_AND_CB,
+    FEATURE_FLAGS_AIRHUMIDIFIER_MJSSQ,
+    FEATURE_FLAGS_AIRPURIFIER_2S,
+    FEATURE_FLAGS_AIRPURIFIER_3C,
+    FEATURE_FLAGS_AIRPURIFIER_4,
+    FEATURE_FLAGS_AIRPURIFIER_4_LITE,
+    FEATURE_FLAGS_AIRPURIFIER_MIIO,
+    FEATURE_FLAGS_AIRPURIFIER_MIOT,
+    FEATURE_FLAGS_AIRPURIFIER_PRO,
+    FEATURE_FLAGS_AIRPURIFIER_PRO_V7,
+    FEATURE_FLAGS_AIRPURIFIER_V1,
+    FEATURE_FLAGS_AIRPURIFIER_V3,
+    FEATURE_FLAGS_AIRPURIFIER_ZA1,
+    FEATURE_FLAGS_FAN,
+    FEATURE_FLAGS_FAN_1C,
+    FEATURE_FLAGS_FAN_P5,
+    FEATURE_FLAGS_FAN_P9,
+    FEATURE_FLAGS_FAN_P10_P11,
+    FEATURE_FLAGS_FAN_ZA5,
+    FEATURE_SET_ANION,
+    FEATURE_SET_AUTO_DETECT,
     FEATURE_SET_BUZZER,
     FEATURE_SET_CHILD_LOCK,
     FEATURE_SET_CLEAN,
+    FEATURE_SET_DISPLAY,
     FEATURE_SET_DRY,
+    FEATURE_SET_IONIZER,
+    FEATURE_SET_LEARN_MODE,
+    FEATURE_SET_LED,
+    FEATURE_SET_PTC,
     KEY_COORDINATOR,
     KEY_DEVICE,
+    MODEL_AIRFRESH_A1,
+    MODEL_AIRFRESH_T2017,
+    MODEL_AIRFRESH_VA2,
+    MODEL_AIRFRESH_VA4,
     MODEL_AIRHUMIDIFIER_CA1,
     MODEL_AIRHUMIDIFIER_CA4,
     MODEL_AIRHUMIDIFIER_CB1,
+    MODEL_AIRPURIFIER_2H,
+    MODEL_AIRPURIFIER_2S,
+    MODEL_AIRPURIFIER_3C,
+    MODEL_AIRPURIFIER_4,
+    MODEL_AIRPURIFIER_4_LITE_RMA1,
+    MODEL_AIRPURIFIER_4_LITE_RMB1,
+    MODEL_AIRPURIFIER_4_PRO,
+    MODEL_AIRPURIFIER_PRO,
+    MODEL_AIRPURIFIER_PRO_V7,
+    MODEL_AIRPURIFIER_V1,
+    MODEL_AIRPURIFIER_V3,
+    MODEL_AIRPURIFIER_ZA1,
+    MODEL_FAN_1C,
+    MODEL_FAN_P5,
+    MODEL_FAN_P9,
+    MODEL_FAN_P10,
+    MODEL_FAN_P11,
+    MODEL_FAN_ZA1,
+    MODEL_FAN_ZA3,
+    MODEL_FAN_ZA4,
+    MODEL_FAN_ZA5,
+    MODELS_FAN,
     MODELS_HUMIDIFIER,
-    SERVICE_SET_BUZZER,
-    SERVICE_SET_CHILD_LOCK,
-    SERVICE_SET_CLEAN,
-    SERVICE_SET_DRY,
+    MODELS_HUMIDIFIER_MJJSQ,
+    MODELS_PURIFIER_MIIO,
+    MODELS_PURIFIER_MIOT,
     SERVICE_SET_POWER_MODE,
     SERVICE_SET_POWER_PRICE,
     SERVICE_SET_WIFI_LED_OFF,
@@ -73,40 +130,25 @@ GATEWAY_SWITCH_VARS = {
     "status_ch2": {KEY_CHANNEL: 2},
 }
 
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
-    {
-        vol.Required(CONF_HOST): cv.string,
-        vol.Required(CONF_TOKEN): vol.All(cv.string, vol.Length(min=32, max=32)),
-        vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
-        vol.Optional(CONF_MODEL): vol.In(
-            [
-                "chuangmi.plug.v1",
-                "qmi.powerstrip.v1",
-                "zimi.powerstrip.v2",
-                "chuangmi.plug.m1",
-                "chuangmi.plug.m3",
-                "chuangmi.plug.v2",
-                "chuangmi.plug.v3",
-                "chuangmi.plug.hmi205",
-                "chuangmi.plug.hmi206",
-                "chuangmi.plug.hmi208",
-                "lumi.acpartner.v3",
-            ]
-        ),
-    }
-)
 
-ATTR_POWER = "power"
-ATTR_LOAD_POWER = "load_power"
-ATTR_MODEL = "model"
-ATTR_POWER_MODE = "power_mode"
-ATTR_WIFI_LED = "wifi_led"
-ATTR_POWER_PRICE = "power_price"
-ATTR_PRICE = "price"
+ATTR_AUTO_DETECT = "auto_detect"
 ATTR_BUZZER = "buzzer"
 ATTR_CHILD_LOCK = "child_lock"
-ATTR_DRY = "dry"
 ATTR_CLEAN = "clean_mode"
+ATTR_DISPLAY = "display"
+ATTR_DRY = "dry"
+ATTR_LEARN_MODE = "learn_mode"
+ATTR_LED = "led"
+ATTR_IONIZER = "ionizer"
+ATTR_ANION = "anion"
+ATTR_LOAD_POWER = "load_power"
+ATTR_MODEL = "model"
+ATTR_POWER = "power"
+ATTR_POWER_MODE = "power_mode"
+ATTR_POWER_PRICE = "power_price"
+ATTR_PRICE = "price"
+ATTR_PTC = "ptc"
+ATTR_WIFI_LED = "wifi_led"
 
 FEATURE_SET_POWER_MODE = 1
 FEATURE_SET_WIFI_LED = 2
@@ -143,82 +185,169 @@ SERVICE_TO_METHOD = {
         "method": "async_set_power_price",
         "schema": SERVICE_SCHEMA_POWER_PRICE,
     },
-    SERVICE_SET_BUZZER: {
-        "method_on": "async_set_buzzer_on",
-        "method_off": "async_set_buzzer_off",
-    },
-    SERVICE_SET_CHILD_LOCK: {
-        "method_on": "async_set_child_lock_on",
-        "method_off": "async_set_child_lock_off",
-    },
-    SERVICE_SET_DRY: {
-        "method_on": "async_set_dry_on",
-        "method_off": "async_set_dry_off",
-    },
-    SERVICE_SET_CLEAN: {
-        "method_on": "async_set_clean_on",
-        "method_off": "async_set_clean_off",
-    },
+}
+
+MODEL_TO_FEATURES_MAP = {
+    MODEL_AIRFRESH_A1: FEATURE_FLAGS_AIRFRESH_A1,
+    MODEL_AIRFRESH_VA2: FEATURE_FLAGS_AIRFRESH,
+    MODEL_AIRFRESH_VA4: FEATURE_FLAGS_AIRFRESH_VA4,
+    MODEL_AIRFRESH_T2017: FEATURE_FLAGS_AIRFRESH_T2017,
+    MODEL_AIRHUMIDIFIER_CA1: FEATURE_FLAGS_AIRHUMIDIFIER_CA_AND_CB,
+    MODEL_AIRHUMIDIFIER_CA4: FEATURE_FLAGS_AIRHUMIDIFIER_CA4,
+    MODEL_AIRHUMIDIFIER_CB1: FEATURE_FLAGS_AIRHUMIDIFIER_CA_AND_CB,
+    MODEL_AIRPURIFIER_2H: FEATURE_FLAGS_AIRPURIFIER_2S,
+    MODEL_AIRPURIFIER_2S: FEATURE_FLAGS_AIRPURIFIER_2S,
+    MODEL_AIRPURIFIER_3C: FEATURE_FLAGS_AIRPURIFIER_3C,
+    MODEL_AIRPURIFIER_PRO: FEATURE_FLAGS_AIRPURIFIER_PRO,
+    MODEL_AIRPURIFIER_PRO_V7: FEATURE_FLAGS_AIRPURIFIER_PRO_V7,
+    MODEL_AIRPURIFIER_V1: FEATURE_FLAGS_AIRPURIFIER_V1,
+    MODEL_AIRPURIFIER_V3: FEATURE_FLAGS_AIRPURIFIER_V3,
+    MODEL_AIRPURIFIER_4_LITE_RMA1: FEATURE_FLAGS_AIRPURIFIER_4_LITE,
+    MODEL_AIRPURIFIER_4_LITE_RMB1: FEATURE_FLAGS_AIRPURIFIER_4_LITE,
+    MODEL_AIRPURIFIER_4: FEATURE_FLAGS_AIRPURIFIER_4,
+    MODEL_AIRPURIFIER_4_PRO: FEATURE_FLAGS_AIRPURIFIER_4,
+    MODEL_AIRPURIFIER_ZA1: FEATURE_FLAGS_AIRPURIFIER_ZA1,
+    MODEL_FAN_1C: FEATURE_FLAGS_FAN_1C,
+    MODEL_FAN_P10: FEATURE_FLAGS_FAN_P10_P11,
+    MODEL_FAN_P11: FEATURE_FLAGS_FAN_P10_P11,
+    MODEL_FAN_P5: FEATURE_FLAGS_FAN_P5,
+    MODEL_FAN_P9: FEATURE_FLAGS_FAN_P9,
+    MODEL_FAN_ZA1: FEATURE_FLAGS_FAN,
+    MODEL_FAN_ZA3: FEATURE_FLAGS_FAN,
+    MODEL_FAN_ZA4: FEATURE_FLAGS_FAN,
+    MODEL_FAN_ZA5: FEATURE_FLAGS_FAN_ZA5,
 }
 
 
 @dataclass
-class SwitchType:
-    """Class that holds device specific info for a xiaomi aqara or humidifiers."""
+class XiaomiMiioSwitchRequiredKeyMixin:
+    """A class that describes switch entities."""
 
-    name: str = None
-    short_name: str = None
-    icon: str = None
-    service: str = None
+    feature: int
+    method_on: str
+    method_off: str
+
+
+@dataclass
+class XiaomiMiioSwitchDescription(
+    SwitchEntityDescription, XiaomiMiioSwitchRequiredKeyMixin
+):
+    """A class that describes switch entities."""
+
     available_with_device_off: bool = True
 
 
-SWITCH_TYPES = {
-    FEATURE_SET_BUZZER: SwitchType(
+SWITCH_TYPES = (
+    XiaomiMiioSwitchDescription(
+        key=ATTR_BUZZER,
+        feature=FEATURE_SET_BUZZER,
         name="Buzzer",
         icon="mdi:volume-high",
-        short_name=ATTR_BUZZER,
-        service=SERVICE_SET_BUZZER,
+        method_on="async_set_buzzer_on",
+        method_off="async_set_buzzer_off",
+        entity_category=EntityCategory.CONFIG,
     ),
-    FEATURE_SET_CHILD_LOCK: SwitchType(
-        name="Child Lock",
+    XiaomiMiioSwitchDescription(
+        key=ATTR_CHILD_LOCK,
+        feature=FEATURE_SET_CHILD_LOCK,
+        name="Child lock",
         icon="mdi:lock",
-        short_name=ATTR_CHILD_LOCK,
-        service=SERVICE_SET_CHILD_LOCK,
+        method_on="async_set_child_lock_on",
+        method_off="async_set_child_lock_off",
+        entity_category=EntityCategory.CONFIG,
     ),
-    FEATURE_SET_DRY: SwitchType(
-        name="Dry Mode",
+    XiaomiMiioSwitchDescription(
+        key=ATTR_DISPLAY,
+        feature=FEATURE_SET_DISPLAY,
+        name="Display",
+        icon="mdi:led-outline",
+        method_on="async_set_display_on",
+        method_off="async_set_display_off",
+        entity_category=EntityCategory.CONFIG,
+    ),
+    XiaomiMiioSwitchDescription(
+        key=ATTR_DRY,
+        feature=FEATURE_SET_DRY,
+        name="Dry mode",
         icon="mdi:hair-dryer",
-        short_name=ATTR_DRY,
-        service=SERVICE_SET_DRY,
+        method_on="async_set_dry_on",
+        method_off="async_set_dry_off",
+        entity_category=EntityCategory.CONFIG,
     ),
-    FEATURE_SET_CLEAN: SwitchType(
-        name="Clean Mode",
-        icon="mdi:sparkles",
-        short_name=ATTR_CLEAN,
-        service=SERVICE_SET_CLEAN,
+    XiaomiMiioSwitchDescription(
+        key=ATTR_CLEAN,
+        feature=FEATURE_SET_CLEAN,
+        name="Clean mode",
+        icon="mdi:shimmer",
+        method_on="async_set_clean_on",
+        method_off="async_set_clean_off",
         available_with_device_off=False,
+        entity_category=EntityCategory.CONFIG,
     ),
-}
+    XiaomiMiioSwitchDescription(
+        key=ATTR_LED,
+        feature=FEATURE_SET_LED,
+        name="LED",
+        icon="mdi:led-outline",
+        method_on="async_set_led_on",
+        method_off="async_set_led_off",
+        entity_category=EntityCategory.CONFIG,
+    ),
+    XiaomiMiioSwitchDescription(
+        key=ATTR_LEARN_MODE,
+        feature=FEATURE_SET_LEARN_MODE,
+        name="Learn mode",
+        icon="mdi:school-outline",
+        method_on="async_set_learn_mode_on",
+        method_off="async_set_learn_mode_off",
+        entity_category=EntityCategory.CONFIG,
+    ),
+    XiaomiMiioSwitchDescription(
+        key=ATTR_AUTO_DETECT,
+        feature=FEATURE_SET_AUTO_DETECT,
+        name="Auto detect",
+        method_on="async_set_auto_detect_on",
+        method_off="async_set_auto_detect_off",
+        entity_category=EntityCategory.CONFIG,
+    ),
+    XiaomiMiioSwitchDescription(
+        key=ATTR_IONIZER,
+        feature=FEATURE_SET_IONIZER,
+        name="Ionizer",
+        icon="mdi:shimmer",
+        method_on="async_set_ionizer_on",
+        method_off="async_set_ionizer_off",
+        entity_category=EntityCategory.CONFIG,
+    ),
+    XiaomiMiioSwitchDescription(
+        key=ATTR_ANION,
+        feature=FEATURE_SET_ANION,
+        name="Ionizer",
+        icon="mdi:shimmer",
+        method_on="async_set_anion_on",
+        method_off="async_set_anion_off",
+        entity_category=EntityCategory.CONFIG,
+    ),
+    XiaomiMiioSwitchDescription(
+        key=ATTR_PTC,
+        feature=FEATURE_SET_PTC,
+        name="Auxiliary heat",
+        icon="mdi:radiator",
+        method_on="async_set_ptc_on",
+        method_off="async_set_ptc_off",
+        entity_category=EntityCategory.CONFIG,
+    ),
+)
 
 
-async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
-    """Import Miio configuration from YAML."""
-    _LOGGER.warning(
-        "Loading Xiaomi Miio Switch via platform setup is deprecated; Please remove it from your configuration"
-    )
-    hass.async_create_task(
-        hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={"source": SOURCE_IMPORT},
-            data=config,
-        )
-    )
-
-
-async def async_setup_entry(hass, config_entry, async_add_entities):
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
     """Set up the switch from a config entry."""
-    if config_entry.data[CONF_MODEL] in MODELS_HUMIDIFIER:
+    model = config_entry.data[CONF_MODEL]
+    if model in (*MODELS_HUMIDIFIER, *MODELS_FAN):
         await async_setup_coordinated_entry(hass, config_entry, async_add_entities)
     else:
         await async_setup_other_entry(hass, config_entry, async_add_entities)
@@ -237,23 +366,26 @@ async def async_setup_coordinated_entry(hass, config_entry, async_add_entities):
 
     device_features = 0
 
-    if model in [MODEL_AIRHUMIDIFIER_CA1, MODEL_AIRHUMIDIFIER_CB1]:
-        device_features = FEATURE_FLAGS_AIRHUMIDIFIER_CA_AND_CB
-    elif model in [MODEL_AIRHUMIDIFIER_CA4]:
-        device_features = FEATURE_FLAGS_AIRHUMIDIFIER_CA4
+    if model in MODEL_TO_FEATURES_MAP:
+        device_features = MODEL_TO_FEATURES_MAP[model]
+    elif model in MODELS_HUMIDIFIER_MJJSQ:
+        device_features = FEATURE_FLAGS_AIRHUMIDIFIER_MJSSQ
     elif model in MODELS_HUMIDIFIER:
         device_features = FEATURE_FLAGS_AIRHUMIDIFIER
+    elif model in MODELS_PURIFIER_MIIO:
+        device_features = FEATURE_FLAGS_AIRPURIFIER_MIIO
+    elif model in MODELS_PURIFIER_MIOT:
+        device_features = FEATURE_FLAGS_AIRPURIFIER_MIOT
 
-    for feature, switch in SWITCH_TYPES.items():
-        if feature & device_features:
+    for description in SWITCH_TYPES:
+        if description.feature & device_features:
             entities.append(
                 XiaomiGenericCoordinatedSwitch(
-                    f"{config_entry.title} {switch.name}",
                     device,
                     config_entry,
-                    f"{switch.short_name}_{unique_id}",
-                    switch,
+                    f"{description.key}_{unique_id}",
                     coordinator,
+                    description,
                 )
             )
 
@@ -272,10 +404,12 @@ async def async_setup_other_entry(hass, config_entry, async_add_entities):
         gateway = hass.data[DOMAIN][config_entry.entry_id][CONF_GATEWAY]
         # Gateway sub devices
         sub_devices = gateway.devices
-        coordinator = hass.data[DOMAIN][config_entry.entry_id][KEY_COORDINATOR]
         for sub_device in sub_devices.values():
             if sub_device.device_type != "Switch":
                 continue
+            coordinator = hass.data[DOMAIN][config_entry.entry_id][KEY_COORDINATOR][
+                sub_device.sid
+            ]
             switch_variables = set(sub_device.status) & set(GATEWAY_SWITCH_VARS)
             if switch_variables:
                 entities.extend(
@@ -336,22 +470,23 @@ async def async_setup_other_entry(hass, config_entry, async_add_entities):
             hass.data[DATA_KEY][host] = device
         else:
             _LOGGER.error(
-                "Unsupported device found! Please create an issue at "
-                "https://github.com/rytilahti/python-miio/issues "
-                "and provide the following data: %s",
+                (
+                    "Unsupported device found! Please create an issue at "
+                    "https://github.com/rytilahti/python-miio/issues "
+                    "and provide the following data: %s"
+                ),
                 model,
             )
 
-        async def async_service_handler(service):
+        async def async_service_handler(service: ServiceCall) -> None:
             """Map services to methods on XiaomiPlugGenericSwitch."""
-            method = SERVICE_TO_METHOD.get(service.service)
+            method = SERVICE_TO_METHOD[service.service]
             params = {
                 key: value
                 for key, value in service.data.items()
                 if key != ATTR_ENTITY_ID
             }
-            entity_ids = service.data.get(ATTR_ENTITY_ID)
-            if entity_ids:
+            if entity_ids := service.data.get(ATTR_ENTITY_ID):
                 devices = [
                     device
                     for device in hass.data[DATA_KEY].values()
@@ -382,57 +517,48 @@ async def async_setup_other_entry(hass, config_entry, async_add_entities):
 class XiaomiGenericCoordinatedSwitch(XiaomiCoordinatedMiioEntity, SwitchEntity):
     """Representation of a Xiaomi Plug Generic."""
 
-    def __init__(self, name, device, entry, unique_id, switch, coordinator):
-        """Initialize the plug switch."""
-        super().__init__(name, device, entry, unique_id, coordinator)
+    entity_description: XiaomiMiioSwitchDescription
 
-        self._attr_icon = switch.icon
-        self._controller = switch
+    def __init__(self, device, entry, unique_id, coordinator, description):
+        """Initialize the plug switch."""
+        super().__init__(device, entry, unique_id, coordinator)
+
         self._attr_is_on = self._extract_value_from_attribute(
-            self.coordinator.data, self._controller.short_name
+            self.coordinator.data, description.key
         )
+        self.entity_description = description
 
     @callback
     def _handle_coordinator_update(self):
         """Fetch state from the device."""
         # On state change the device doesn't provide the new state immediately.
         self._attr_is_on = self._extract_value_from_attribute(
-            self.coordinator.data, self._controller.short_name
+            self.coordinator.data, self.entity_description.key
         )
         self.async_write_ha_state()
 
     @property
-    def available(self):
+    def available(self) -> bool:
         """Return true when state is known."""
         if (
             super().available
             and not self.coordinator.data.is_on
-            and not self._controller.available_with_device_off
+            and not self.entity_description.available_with_device_off
         ):
             return False
         return super().available
 
-    @staticmethod
-    def _extract_value_from_attribute(state, attribute):
-        value = getattr(state, attribute)
-        if isinstance(value, Enum):
-            return value.value
-
-        return value
-
-    async def async_turn_on(self, **kwargs) -> None:
+    async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on an option of the miio device."""
-        method = getattr(self, SERVICE_TO_METHOD[self._controller.service]["method_on"])
+        method = getattr(self, self.entity_description.method_on)
         if await method():
             # Write state back to avoid switch flips with a slow response
             self._attr_is_on = True
             self.async_write_ha_state()
 
-    async def async_turn_off(self, **kwargs) -> None:
+    async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off an option of the miio device."""
-        method = getattr(
-            self, SERVICE_TO_METHOD[self._controller.service]["method_off"]
-        )
+        method = getattr(self, self.entity_description.method_off)
         if await method():
             # Write state back to avoid switch flips with a slow response
             self._attr_is_on = False
@@ -470,6 +596,22 @@ class XiaomiGenericCoordinatedSwitch(XiaomiCoordinatedMiioEntity, SwitchEntity):
             False,
         )
 
+    async def async_set_display_on(self) -> bool:
+        """Turn the display on."""
+        return await self._try_command(
+            "Turning the display of the miio device on failed.",
+            self._device.set_display,
+            True,
+        )
+
+    async def async_set_display_off(self) -> bool:
+        """Turn the display off."""
+        return await self._try_command(
+            "Turning the display of the miio device off failed.",
+            self._device.set_display,
+            False,
+        )
+
     async def async_set_dry_on(self) -> bool:
         """Turn the dry mode on."""
         return await self._try_command(
@@ -502,11 +644,107 @@ class XiaomiGenericCoordinatedSwitch(XiaomiCoordinatedMiioEntity, SwitchEntity):
             False,
         )
 
+    async def async_set_led_on(self) -> bool:
+        """Turn the led on."""
+        return await self._try_command(
+            "Turning the led of the miio device on failed.",
+            self._device.set_led,
+            True,
+        )
+
+    async def async_set_led_off(self) -> bool:
+        """Turn the led off."""
+        return await self._try_command(
+            "Turning the led of the miio device off failed.",
+            self._device.set_led,
+            False,
+        )
+
+    async def async_set_learn_mode_on(self) -> bool:
+        """Turn the learn mode on."""
+        return await self._try_command(
+            "Turning the learn mode of the miio device on failed.",
+            self._device.set_learn_mode,
+            True,
+        )
+
+    async def async_set_learn_mode_off(self) -> bool:
+        """Turn the learn mode off."""
+        return await self._try_command(
+            "Turning the learn mode of the miio device off failed.",
+            self._device.set_learn_mode,
+            False,
+        )
+
+    async def async_set_auto_detect_on(self) -> bool:
+        """Turn auto detect on."""
+        return await self._try_command(
+            "Turning auto detect of the miio device on failed.",
+            self._device.set_auto_detect,
+            True,
+        )
+
+    async def async_set_auto_detect_off(self) -> bool:
+        """Turn auto detect off."""
+        return await self._try_command(
+            "Turning auto detect of the miio device off failed.",
+            self._device.set_auto_detect,
+            False,
+        )
+
+    async def async_set_ionizer_on(self) -> bool:
+        """Turn ionizer on."""
+        return await self._try_command(
+            "Turning ionizer of the miio device on failed.",
+            self._device.set_ionizer,
+            True,
+        )
+
+    async def async_set_ionizer_off(self) -> bool:
+        """Turn ionizer off."""
+        return await self._try_command(
+            "Turning ionizer of the miio device off failed.",
+            self._device.set_ionizer,
+            False,
+        )
+
+    async def async_set_anion_on(self) -> bool:
+        """Turn ionizer on."""
+        return await self._try_command(
+            "Turning ionizer of the miio device on failed.",
+            self._device.set_anion,
+            True,
+        )
+
+    async def async_set_anion_off(self) -> bool:
+        """Turn ionizer off."""
+        return await self._try_command(
+            "Turning ionizer of the miio device off failed.",
+            self._device.set_anion,
+            False,
+        )
+
+    async def async_set_ptc_on(self) -> bool:
+        """Turn ionizer on."""
+        return await self._try_command(
+            "Turning ionizer of the miio device on failed.",
+            self._device.set_ptc,
+            True,
+        )
+
+    async def async_set_ptc_off(self) -> bool:
+        """Turn ionizer off."""
+        return await self._try_command(
+            "Turning ionizer of the miio device off failed.",
+            self._device.set_ptc,
+            False,
+        )
+
 
 class XiaomiGatewaySwitch(XiaomiGatewayDevice, SwitchEntity):
     """Representation of a XiaomiGatewaySwitch."""
 
-    _attr_device_class = DEVICE_CLASS_SWITCH
+    _attr_device_class = SwitchDeviceClass.SWITCH
 
     def __init__(self, coordinator, sub_device, entry, variable):
         """Initialize the XiaomiSensor."""
@@ -521,15 +759,15 @@ class XiaomiGatewaySwitch(XiaomiGatewayDevice, SwitchEntity):
         """Return true if switch is on."""
         return self._sub_device.status[self._data_key] == "on"
 
-    async def async_turn_on(self, **kwargs):
+    async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
         await self.hass.async_add_executor_job(self._sub_device.on, self._channel)
 
-    async def async_turn_off(self, **kwargs):
+    async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off."""
         await self.hass.async_add_executor_job(self._sub_device.off, self._channel)
 
-    async def async_toggle(self, **kwargs):
+    async def async_toggle(self, **kwargs: Any) -> None:
         """Toggle the switch."""
         await self.hass.async_add_executor_job(self._sub_device.toggle, self._channel)
 
@@ -589,7 +827,7 @@ class XiaomiPlugGenericSwitch(XiaomiMiioEntity, SwitchEntity):
 
             return False
 
-    async def async_turn_on(self, **kwargs):
+    async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the plug on."""
         result = await self._try_command("Turning the plug on failed", self._device.on)
 
@@ -597,7 +835,7 @@ class XiaomiPlugGenericSwitch(XiaomiMiioEntity, SwitchEntity):
             self._state = True
             self._skip_update = True
 
-    async def async_turn_off(self, **kwargs):
+    async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the plug off."""
         result = await self._try_command(
             "Turning the plug off failed", self._device.off
@@ -607,7 +845,7 @@ class XiaomiPlugGenericSwitch(XiaomiMiioEntity, SwitchEntity):
             self._state = False
             self._skip_update = True
 
-    async def async_update(self):
+    async def async_update(self) -> None:
         """Fetch state from the device."""
         # On state change the device doesn't provide the new state immediately.
         if self._skip_update:
@@ -680,7 +918,7 @@ class XiaomiPowerStripSwitch(XiaomiPlugGenericSwitch):
         if self._device_features & FEATURE_SET_POWER_PRICE == 1:
             self._state_attrs[ATTR_POWER_PRICE] = None
 
-    async def async_update(self):
+    async def async_update(self) -> None:
         """Fetch state from the device."""
         # On state change the device doesn't provide the new state immediately.
         if self._skip_update:
@@ -745,7 +983,7 @@ class ChuangMiPlugSwitch(XiaomiPlugGenericSwitch):
             if self._channel_usb is False:
                 self._state_attrs[ATTR_LOAD_POWER] = None
 
-    async def async_turn_on(self, **kwargs):
+    async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn a channel on."""
         if self._channel_usb:
             result = await self._try_command(
@@ -760,7 +998,7 @@ class ChuangMiPlugSwitch(XiaomiPlugGenericSwitch):
             self._state = True
             self._skip_update = True
 
-    async def async_turn_off(self, **kwargs):
+    async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn a channel off."""
         if self._channel_usb:
             result = await self._try_command(
@@ -775,7 +1013,7 @@ class ChuangMiPlugSwitch(XiaomiPlugGenericSwitch):
             self._state = False
             self._skip_update = True
 
-    async def async_update(self):
+    async def async_update(self) -> None:
         """Fetch state from the device."""
         # On state change the device doesn't provide the new state immediately.
         if self._skip_update:
@@ -815,7 +1053,7 @@ class XiaomiAirConditioningCompanionSwitch(XiaomiPlugGenericSwitch):
 
         self._state_attrs.update({ATTR_TEMPERATURE: None, ATTR_LOAD_POWER: None})
 
-    async def async_turn_on(self, **kwargs):
+    async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the socket on."""
         result = await self._try_command(
             "Turning the socket on failed", self._device.socket_on
@@ -825,7 +1063,7 @@ class XiaomiAirConditioningCompanionSwitch(XiaomiPlugGenericSwitch):
             self._state = True
             self._skip_update = True
 
-    async def async_turn_off(self, **kwargs):
+    async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the socket off."""
         result = await self._try_command(
             "Turning the socket off failed", self._device.socket_off
@@ -835,7 +1073,7 @@ class XiaomiAirConditioningCompanionSwitch(XiaomiPlugGenericSwitch):
             self._state = False
             self._skip_update = True
 
-    async def async_update(self):
+    async def async_update(self) -> None:
         """Fetch state from the device."""
         # On state change the device doesn't provide the new state immediately.
         if self._skip_update:

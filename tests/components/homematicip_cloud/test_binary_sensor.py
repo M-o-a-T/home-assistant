@@ -22,13 +22,14 @@ from homeassistant.components.homematicip_cloud.generic_entity import (
     ATTR_RSSI_DEVICE,
     ATTR_SABOTAGE,
 )
-from homeassistant.const import STATE_OFF, STATE_ON
+from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNKNOWN
+from homeassistant.core import HomeAssistant
 from homeassistant.setup import async_setup_component
 
 from .helper import async_manipulate_test_data, get_and_check_entity_basics
 
 
-async def test_manually_configured_platform(hass):
+async def test_manually_configured_platform(hass: HomeAssistant) -> None:
     """Test that we do not set up an access point."""
     assert await async_setup_component(
         hass,
@@ -152,7 +153,7 @@ async def test_hmip_contact_interface(hass, default_mock_hap_factory):
 
     await async_manipulate_test_data(hass, hmip_device, "windowState", None)
     ha_state = hass.states.get(entity_id)
-    assert ha_state.state == STATE_OFF
+    assert ha_state.state == STATE_UNKNOWN
 
 
 async def test_hmip_shutter_contact(hass, default_mock_hap_factory):
@@ -185,7 +186,7 @@ async def test_hmip_shutter_contact(hass, default_mock_hap_factory):
 
     await async_manipulate_test_data(hass, hmip_device, "windowState", None)
     ha_state = hass.states.get(entity_id)
-    assert ha_state.state == STATE_OFF
+    assert ha_state.state == STATE_UNKNOWN
 
     # test common attributes
     assert ha_state.attributes[ATTR_RSSI_DEVICE] == -54
@@ -215,7 +216,7 @@ async def test_hmip_shutter_contact_optical(hass, default_mock_hap_factory):
 
     await async_manipulate_test_data(hass, hmip_device, "windowState", None)
     ha_state = hass.states.get(entity_id)
-    assert ha_state.state == STATE_OFF
+    assert ha_state.state == STATE_UNKNOWN
 
     # test common attributes
     assert ha_state.attributes[ATTR_RSSI_DEVICE] == -72
@@ -562,7 +563,7 @@ async def test_hmip_multi_contact_interface(hass, default_mock_hap_factory):
 
     await async_manipulate_test_data(hass, hmip_device, "windowState", None, channel=5)
     ha_state = hass.states.get(entity_id)
-    assert ha_state.state == STATE_OFF
+    assert ha_state.state == STATE_UNKNOWN
 
     ha_state, hmip_device = get_and_check_entity_basics(
         hass,
@@ -572,4 +573,4 @@ async def test_hmip_multi_contact_interface(hass, default_mock_hap_factory):
         "HmIP-FCI6",
     )
 
-    assert ha_state.state == STATE_OFF
+    assert ha_state.state == STATE_UNKNOWN

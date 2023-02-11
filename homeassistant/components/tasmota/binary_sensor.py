@@ -1,8 +1,9 @@
 """Support for Tasmota binary sensors."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
 from hatasmota import switch as tasmota_switch
 from hatasmota.entity import TasmotaEntity as HATasmotaEntity
@@ -57,6 +58,7 @@ class TasmotaBinarySensor(
 ):
     """Representation a Tasmota binary sensor."""
 
+    _attr_force_update = True
     _tasmota_entity: tasmota_switch.TasmotaSwitch
 
     def __init__(self, **kwds: Any) -> None:
@@ -96,11 +98,6 @@ class TasmotaBinarySensor(
             )
 
         self.async_write_ha_state()
-
-    @property
-    def force_update(self) -> bool:
-        """Force update."""
-        return True
 
     @property
     def is_on(self) -> bool | None:

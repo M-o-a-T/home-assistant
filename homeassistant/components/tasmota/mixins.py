@@ -62,7 +62,9 @@ class TasmotaEntity(Entity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return a device description for device registry."""
-        return {"connections": {(CONNECTION_NETWORK_MAC, self._tasmota_entity.mac)}}
+        return DeviceInfo(
+            connections={(CONNECTION_NETWORK_MAC, self._tasmota_entity.mac)}
+        )
 
     @property
     def name(self) -> str | None:
@@ -123,10 +125,9 @@ class TasmotaAvailability(TasmotaEntity):
         )
         await super().async_added_to_hass()
 
-    @callback
-    def availability_updated(self, available: bool) -> None:
+    async def availability_updated(self, available: bool) -> None:
         """Handle updated availability."""
-        self._tasmota_entity.poll_status()
+        await self._tasmota_entity.poll_status()
         self._available = available
         self.async_write_ha_state()
 
@@ -173,7 +174,8 @@ class TasmotaDiscoveryUpdate(TasmotaEntity):
                 # Unchanged payload: Ignore to avoid changing states
                 _LOGGER.debug("Ignoring unchanged update for: %s", self.entity_id)
 
-        # Set in case the entity has been removed and is re-added, for example when changing entity_id
+        # Set in case the entity has been removed and is re-added,
+        # for example when changing entity_id
         set_discovery_hash(self.hass, self._discovery_hash)
         self.async_on_remove(
             async_dispatcher_connect(

@@ -9,7 +9,7 @@ import pytest
 
 from homeassistant.components import zone
 import homeassistant.components.device_tracker as device_tracker
-from homeassistant.components.device_tracker import const, legacy
+from homeassistant.components.device_tracker import SourceType, const, legacy
 from homeassistant.const import (
     ATTR_ENTITY_PICTURE,
     ATTR_FRIENDLY_NAME,
@@ -21,12 +21,14 @@ from homeassistant.const import (
     STATE_HOME,
     STATE_NOT_HOME,
 )
-from homeassistant.core import State, callback
+from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import discovery
 from homeassistant.helpers.json import JSONEncoder
 from homeassistant.setup import async_setup_component
 import homeassistant.util.dt as dt_util
+
+from . import common
 
 from tests.common import (
     assert_setup_component,
@@ -35,7 +37,6 @@ from tests.common import (
     mock_restore_cache,
     patch_yaml_files,
 )
-from tests.components.device_tracker import common
 
 TEST_PLATFORM = {device_tracker.DOMAIN: {CONF_PLATFORM: "test"}}
 
@@ -53,7 +54,7 @@ def mock_yaml_devices(hass):
         os.remove(yaml_devices)
 
 
-async def test_is_on(hass):
+async def test_is_on(hass: HomeAssistant) -> None:
     """Test is_on method."""
     entity_id = f"{const.DOMAIN}.test"
 
@@ -66,7 +67,7 @@ async def test_is_on(hass):
     assert not device_tracker.is_on(hass, entity_id)
 
 
-async def test_reading_broken_yaml_config(hass):
+async def test_reading_broken_yaml_config(hass: HomeAssistant) -> None:
     """Test when known devices contains invalid data."""
     files = {
         "empty.yaml": "",
@@ -74,7 +75,7 @@ async def test_reading_broken_yaml_config(hass):
         "badkey.yaml": "@:\n  name: Device",
         "noname.yaml": "my_device:\n",
         "allok.yaml": "My Device:\n  name: Device",
-        "oneok.yaml": ("My Device!:\n  name: Device\nbad_device:\n  nme: Device"),
+        "oneok.yaml": "My Device!:\n  name: Device\nbad_device:\n  nme: Device",
     }
     args = {"hass": hass, "consider_home": timedelta(seconds=60)}
     with patch_yaml_files(files):
@@ -161,13 +162,14 @@ async def test_duplicate_mac_dev_id(mock_warning, hass):
     assert "Duplicate device IDs" in args[0], "Duplicate device IDs warning expected"
 
 
-async def test_setup_without_yaml_file(hass, enable_custom_integrations):
+async def test_setup_without_yaml_file(hass, yaml_devices, enable_custom_integrations):
     """Test with no YAML file."""
     with assert_setup_component(1, device_tracker.DOMAIN):
         assert await async_setup_component(hass, device_tracker.DOMAIN, TEST_PLATFORM)
+        await hass.async_block_till_done()
 
 
-async def test_gravatar(hass):
+async def test_gravatar(hass: HomeAssistant) -> None:
     """Test the Gravatar generation."""
     dev_id = "test"
     device = legacy.Device(
@@ -186,7 +188,7 @@ async def test_gravatar(hass):
     assert device.config_picture == gravatar_url
 
 
-async def test_gravatar_and_picture(hass):
+async def test_gravatar_and_picture(hass: HomeAssistant) -> None:
     """Test that Gravatar overrides picture."""
     dev_id = "test"
     device = legacy.Device(
@@ -210,10 +212,11 @@ async def test_gravatar_and_picture(hass):
 @patch("homeassistant.components.demo.device_tracker.setup_scanner", autospec=True)
 async def test_discover_platform(mock_demo_setup_scanner, mock_see, hass):
     """Test discovery of device_tracker demo platform."""
-    await discovery.async_load_platform(
-        hass, device_tracker.DOMAIN, "demo", {"test_key": "test_val"}, {"bla": {}}
-    )
-    await hass.async_block_till_done()
+    with patch("homeassistant.components.device_tracker.legacy.update_config"):
+        await discovery.async_load_platform(
+            hass, device_tracker.DOMAIN, "demo", {"test_key": "test_val"}, {"bla": {}}
+        )
+        await hass.async_block_till_done()
     assert device_tracker.DOMAIN in hass.config.components
     assert mock_demo_setup_scanner.called
     assert mock_demo_setup_scanner.call_args[0] == (
@@ -298,7 +301,7 @@ async def test_entity_attributes(
     assert picture == attrs.get(ATTR_ENTITY_PICTURE)
 
 
-@patch("homeassistant.components.device_tracker.legacy." "DeviceTracker.async_see")
+@patch("homeassistant.components.device_tracker.legacy.DeviceTracker.async_see")
 async def test_see_service(mock_see, hass, enable_custom_integrations):
     """Test the see service with a unicode dev_id and NO MAC."""
     with assert_setup_component(1, device_tracker.DOMAIN):
@@ -492,7 +495,7 @@ async def test_see_passive_zone_state(
     assert attrs.get("latitude") == 1
     assert attrs.get("longitude") == 2
     assert attrs.get("gps_accuracy") == 0
-    assert attrs.get("source_type") == device_tracker.SOURCE_TYPE_ROUTER
+    assert attrs.get("source_type") == SourceType.ROUTER
 
     scanner.leave_home("dev1")
 
@@ -512,7 +515,7 @@ async def test_see_passive_zone_state(
     assert attrs.get("latitude") is None
     assert attrs.get("longitude") is None
     assert attrs.get("gps_accuracy") is None
-    assert attrs.get("source_type") == device_tracker.SOURCE_TYPE_ROUTER
+    assert attrs.get("source_type") == SourceType.ROUTER
 
 
 @patch("homeassistant.components.device_tracker.const.LOGGER.warning")
@@ -539,7 +542,7 @@ async def test_see_failures(mock_warning, hass, mock_device_tracker_conf):
     assert len(devices) == 4
 
 
-async def test_async_added_to_hass(hass):
+async def test_async_added_to_hass(hass: HomeAssistant) -> None:
     """Test restoring state."""
     attr = {
         ATTR_LONGITUDE: 18,
@@ -565,7 +568,7 @@ async def test_async_added_to_hass(hass):
         assert atr == val, f"{key}={atr} expected: {val}"
 
 
-async def test_bad_platform(hass):
+async def test_bad_platform(hass: HomeAssistant) -> None:
     """Test bad platform."""
     config = {"device_tracker": [{"platform": "bad_platform"}]}
     with assert_setup_component(0, device_tracker.DOMAIN):
@@ -626,7 +629,7 @@ async def test_old_style_track_new_is_skipped(mock_device_tracker_conf, hass):
     assert mock_device_tracker_conf[0].track is False
 
 
-def test_see_schema_allowing_ios_calls():
+def test_see_schema_allowing_ios_calls() -> None:
     """Test SEE service schema allows extra keys.
 
     Temp work around because the iOS app sends incorrect data.

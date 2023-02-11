@@ -9,6 +9,7 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from homeassistant.data_entry_flow import FlowResult
 
 from .const import CONF_FLIPR_ID, DOMAIN
 
@@ -20,12 +21,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    _username: str | None = None
-    _password: str | None = None
-    _flipr_id: str | None = None
-    _possible_flipr_ids: list[str] | None = None
+    _username: str
+    _password: str
+    _flipr_id: str = ""
+    _possible_flipr_ids: list[str]
 
-    async def async_step_user(self, user_input=None):
+    async def async_step_user(
+        self, user_input: dict[str, str] | None = None
+    ) -> FlowResult:
         """Handle the initial step."""
         if user_input is None:
             return self._show_setup_form()
@@ -45,7 +48,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
                 _LOGGER.exception(exception)
 
-            if not errors and len(flipr_ids) == 0:
+            if not errors and not flipr_ids:
                 # No flipr_id found. Tell the user with an error message.
                 errors["base"] = "no_flipr_id_found"
 
@@ -85,15 +88,16 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def _authenticate_and_search_flipr(self) -> list[str]:
         """Validate the username and password provided and searches for a flipr id."""
-        client = await self.hass.async_add_executor_job(
-            FliprAPIRestClient, self._username, self._password
-        )
+        # Instantiates the flipr API that does not require async since it is has no network access.
+        client = FliprAPIRestClient(self._username, self._password)
 
         flipr_ids = await self.hass.async_add_executor_job(client.search_flipr_ids)
 
         return flipr_ids
 
-    async def async_step_flipr_id(self, user_input=None):
+    async def async_step_flipr_id(
+        self, user_input: dict[str, str] | None = None
+    ) -> FlowResult:
         """Handle the initial step."""
         if not user_input:
             # Creation of a select with the proposal of flipr ids values found by API.

@@ -5,16 +5,15 @@ from datetime import datetime
 
 from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN, SensorEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_IDENTIFIERS, ATTR_MANUFACTURER, ATTR_NAME
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceEntryType
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
-from homeassistant.helpers.update_coordinator import (
-    CoordinatorEntity,
-    DataUpdateCoordinator,
-)
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import ATTR_ENTRY_TYPE, DOMAIN, ENTRY_TYPE_SERVICE, SENSORS
+from .const import DOMAIN, SENSORS
+from .coordinator import ForecastSolarDataUpdateCoordinator
 from .models import ForecastSolarSensorEntityDescription
 
 
@@ -22,7 +21,7 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Defer sensor setup to the shared sensor module."""
-    coordinator: DataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator: ForecastSolarDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
 
     async_add_entities(
         ForecastSolarSensorEntity(
@@ -34,33 +33,38 @@ async def async_setup_entry(
     )
 
 
-class ForecastSolarSensorEntity(CoordinatorEntity, SensorEntity):
-    """Defines a Forcast.Solar sensor."""
+class ForecastSolarSensorEntity(
+    CoordinatorEntity[ForecastSolarDataUpdateCoordinator], SensorEntity
+):
+    """Defines a Forecast.Solar sensor."""
 
     entity_description: ForecastSolarSensorEntityDescription
+    _attr_has_entity_name = True
 
     def __init__(
         self,
         *,
         entry_id: str,
-        coordinator: DataUpdateCoordinator,
+        coordinator: ForecastSolarDataUpdateCoordinator,
         entity_description: ForecastSolarSensorEntityDescription,
     ) -> None:
-        """Initialize Forcast.Solar sensor."""
+        """Initialize Forecast.Solar sensor."""
         super().__init__(coordinator=coordinator)
         self.entity_description = entity_description
         self.entity_id = f"{SENSOR_DOMAIN}.{entity_description.key}"
         self._attr_unique_id = f"{entry_id}_{entity_description.key}"
 
-        self._attr_device_info = {
-            ATTR_IDENTIFIERS: {(DOMAIN, entry_id)},
-            ATTR_NAME: "Solar Production Forecast",
-            ATTR_MANUFACTURER: "Forecast.Solar",
-            ATTR_ENTRY_TYPE: ENTRY_TYPE_SERVICE,
-        }
+        self._attr_device_info = DeviceInfo(
+            entry_type=DeviceEntryType.SERVICE,
+            identifiers={(DOMAIN, entry_id)},
+            manufacturer="Forecast.Solar",
+            model=coordinator.data.account_type.value,
+            name="Solar production forecast",
+            configuration_url="https://forecast.solar",
+        )
 
     @property
-    def state(self) -> StateType:
+    def native_value(self) -> datetime | StateType:
         """Return the state of the sensor."""
         if self.entity_description.state is None:
             state: StateType | datetime = getattr(
@@ -69,6 +73,4 @@ class ForecastSolarSensorEntity(CoordinatorEntity, SensorEntity):
         else:
             state = self.entity_description.state(self.coordinator.data)
 
-        if isinstance(state, datetime):
-            return state.isoformat()
         return state

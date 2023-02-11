@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from ipaddress import ip_address
+from ipaddress import IPv4Network, IPv6Network, ip_address
 import logging
+from types import ModuleType
+from typing import Literal
 
 from aiohttp.hdrs import X_FORWARDED_FOR, X_FORWARDED_HOST, X_FORWARDED_PROTO
 from aiohttp.web import Application, HTTPBadRequest, Request, StreamResponse, middleware
@@ -15,7 +17,9 @@ _LOGGER = logging.getLogger(__name__)
 
 @callback
 def async_setup_forwarded(
-    app: Application, use_x_forwarded_for: bool | None, trusted_proxies: list[str]
+    app: Application,
+    use_x_forwarded_for: bool | None,
+    trusted_proxies: list[IPv4Network | IPv6Network],
 ) -> None:
     """Create forwarded middleware for the app.
 
@@ -63,23 +67,30 @@ def async_setup_forwarded(
         an HTTP 400 status code is thrown.
     """
 
-    try:
-        from hass_nabucasa import remote  # pylint: disable=import-outside-toplevel
-
-        # venv users might have already loaded it before it got upgraded so guard for this
-        # This can only happen when people upgrade from before 2021.8.5.
-        if not hasattr(remote, "is_cloud_request"):
-            remote = None
-    except ImportError:
-        remote = None
+    remote: Literal[False] | None | ModuleType = None
 
     @middleware
     async def forwarded_middleware(
         request: Request, handler: Callable[[Request], Awaitable[StreamResponse]]
     ) -> StreamResponse:
         """Process forwarded data by a reverse proxy."""
+        nonlocal remote
+
+        if remote is None:
+            # Initialize remote method
+            try:
+                from hass_nabucasa import (  # pylint: disable=import-outside-toplevel
+                    remote,
+                )
+
+                # venv users might have an old version installed if they don't have cloud around anymore
+                if not hasattr(remote, "is_cloud_request"):
+                    remote = False
+            except ImportError:
+                remote = False
+
         # Skip requests from Remote UI
-        if remote is not None and remote.is_cloud_request.get():
+        if remote and remote.is_cloud_request.get():
             return await handler(request)
 
         # Handle X-Forwarded-For
@@ -101,8 +112,10 @@ def async_setup_forwarded(
         # We have X-Forwarded-For, but config does not agree
         if not use_x_forwarded_for:
             _LOGGER.error(
-                "A request from a reverse proxy was received from %s, but your "
-                "HTTP integration is not set-up for reverse proxies",
+                (
+                    "A request from a reverse proxy was received from %s, but your "
+                    "HTTP integration is not set-up for reverse proxies"
+                ),
                 connected_ip,
             )
             raise HTTPBadRequest
@@ -175,7 +188,10 @@ def async_setup_forwarded(
             # of elements as X-Forwarded-For
             if len(forwarded_proto) not in (1, len(forwarded_for)):
                 _LOGGER.error(
-                    "Incorrect number of elements in X-Forward-Proto. Expected 1 or %d, got %d: %s",
+                    (
+                        "Incorrect number of elements in X-Forward-Proto. Expected 1 or"
+                        " %d, got %d: %s"
+                    ),
                     len(forwarded_for),
                     len(forwarded_proto),
                     forwarded_proto_headers[0],

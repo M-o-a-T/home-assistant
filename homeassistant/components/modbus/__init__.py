@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 import voluptuous as vol
 
@@ -12,7 +13,9 @@ from homeassistant.components.cover import (
     DEVICE_CLASSES_SCHEMA as COVER_DEVICE_CLASSES_SCHEMA,
 )
 from homeassistant.components.sensor import (
+    CONF_STATE_CLASS,
     DEVICE_CLASSES_SCHEMA as SENSOR_DEVICE_CLASSES_SCHEMA,
+    STATE_CLASSES_SCHEMA as SENSOR_STATE_CLASSES_SCHEMA,
 )
 from homeassistant.components.switch import (
     DEVICE_CLASSES_SCHEMA as SWITCH_DEVICE_CLASSES_SCHEMA,
@@ -40,41 +43,51 @@ from homeassistant.const import (
     CONF_TEMPERATURE_UNIT,
     CONF_TIMEOUT,
     CONF_TYPE,
+    CONF_UNIQUE_ID,
     CONF_UNIT_OF_MEASUREMENT,
 )
+from homeassistant.core import HomeAssistant
 import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers.typing import ConfigType
 
-from .const import (
-    ATTR_ADDRESS,
-    ATTR_HUB,
-    ATTR_STATE,
-    ATTR_UNIT,
-    ATTR_VALUE,
+from .const import (  # noqa: F401
     CALL_TYPE_COIL,
     CALL_TYPE_DISCRETE,
     CALL_TYPE_REGISTER_HOLDING,
     CALL_TYPE_REGISTER_INPUT,
+    CALL_TYPE_WRITE_REGISTER,
     CALL_TYPE_X_COILS,
     CALL_TYPE_X_REGISTER_HOLDINGS,
     CONF_BAUDRATE,
     CONF_BYTESIZE,
     CONF_CLIMATES,
     CONF_CLOSE_COMM_ON_ERROR,
-    CONF_DATA_COUNT,
     CONF_DATA_TYPE,
     CONF_FANS,
+    CONF_HUB,
+    CONF_HVAC_MODE_AUTO,
+    CONF_HVAC_MODE_COOL,
+    CONF_HVAC_MODE_DRY,
+    CONF_HVAC_MODE_FAN_ONLY,
+    CONF_HVAC_MODE_HEAT,
+    CONF_HVAC_MODE_HEAT_COOL,
+    CONF_HVAC_MODE_OFF,
+    CONF_HVAC_MODE_REGISTER,
+    CONF_HVAC_MODE_VALUES,
+    CONF_HVAC_ONOFF_REGISTER,
     CONF_INPUT_TYPE,
+    CONF_LAZY_ERROR,
     CONF_MAX_TEMP,
+    CONF_MAX_VALUE,
     CONF_MIN_TEMP,
+    CONF_MIN_VALUE,
     CONF_MSG_WAIT,
     CONF_PARITY,
     CONF_PRECISION,
     CONF_RETRIES,
     CONF_RETRY_ON_EMPTY,
-    CONF_REVERSE_ORDER,
-    CONF_RTUOVERTCP,
     CONF_SCALE,
-    CONF_SERIAL,
+    CONF_SLAVE_COUNT,
     CONF_STATE_CLOSED,
     CONF_STATE_CLOSING,
     CONF_STATE_OFF,
@@ -91,33 +104,30 @@ from .const import (
     CONF_SWAP_WORD,
     CONF_SWAP_WORD_BYTE,
     CONF_TARGET_TEMP,
-    CONF_TCP,
-    CONF_UDP,
     CONF_VERIFY,
     CONF_WRITE_TYPE,
-    DATA_TYPE_CUSTOM,
-    DATA_TYPE_FLOAT,
-    DATA_TYPE_FLOAT16,
-    DATA_TYPE_FLOAT32,
-    DATA_TYPE_FLOAT64,
-    DATA_TYPE_INT,
-    DATA_TYPE_INT16,
-    DATA_TYPE_INT32,
-    DATA_TYPE_INT64,
-    DATA_TYPE_STRING,
-    DATA_TYPE_UINT,
-    DATA_TYPE_UINT16,
-    DATA_TYPE_UINT32,
-    DATA_TYPE_UINT64,
+    CONF_ZERO_SUPPRESS,
     DEFAULT_HUB,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_TEMP_UNIT,
     MODBUS_DOMAIN as DOMAIN,
+    RTUOVERTCP,
+    SERIAL,
+    TCP,
+    UDP,
+    DataType,
 )
-from .modbus import async_modbus_setup
-from .validators import number_validator, scan_interval_validator, struct_validator
+from .modbus import ModbusHub, async_modbus_setup
+from .validators import (
+    duplicate_entity_validator,
+    duplicate_modbus_validator,
+    number_validator,
+    scan_interval_validator,
+    struct_validator,
+)
 
 _LOGGER = logging.getLogger(__name__)
+
 
 BASE_SCHEMA = vol.Schema({vol.Optional(CONF_NAME, default=DEFAULT_HUB): cv.string})
 
@@ -126,10 +136,12 @@ BASE_COMPONENT_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_NAME): cv.string,
         vol.Required(CONF_ADDRESS): cv.positive_int,
-        vol.Optional(CONF_SLAVE): cv.positive_int,
+        vol.Optional(CONF_SLAVE, default=0): cv.positive_int,
         vol.Optional(
             CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL
         ): cv.positive_int,
+        vol.Optional(CONF_LAZY_ERROR, default=0): cv.positive_int,
+        vol.Optional(CONF_UNIQUE_ID): cv.string,
     }
 )
 
@@ -143,23 +155,22 @@ BASE_STRUCT_SCHEMA = BASE_COMPONENT_SCHEMA.extend(
             ]
         ),
         vol.Optional(CONF_COUNT): cv.positive_int,
-        vol.Optional(CONF_DATA_TYPE, default=DATA_TYPE_INT): vol.In(
+        vol.Optional(CONF_DATA_TYPE, default=DataType.INT16): vol.In(
             [
-                DATA_TYPE_INT16,
-                DATA_TYPE_INT32,
-                DATA_TYPE_INT64,
-                DATA_TYPE_UINT16,
-                DATA_TYPE_UINT32,
-                DATA_TYPE_UINT64,
-                DATA_TYPE_FLOAT16,
-                DATA_TYPE_FLOAT32,
-                DATA_TYPE_FLOAT64,
-                DATA_TYPE_STRING,
-                DATA_TYPE_INT,
-                DATA_TYPE_UINT,
-                DATA_TYPE_FLOAT,
-                DATA_TYPE_STRING,
-                DATA_TYPE_CUSTOM,
+                DataType.INT8,
+                DataType.INT16,
+                DataType.INT32,
+                DataType.INT64,
+                DataType.UINT8,
+                DataType.UINT16,
+                DataType.UINT32,
+                DataType.UINT64,
+                DataType.FLOAT16,
+                DataType.FLOAT32,
+                DataType.FLOAT64,
+                DataType.STRING,
+                DataType.STRING,
+                DataType.CUSTOM,
             ]
         ),
         vol.Optional(CONF_STRUCTURE): cv.string,
@@ -213,7 +224,6 @@ BASE_SWITCH_SCHEMA = BASE_COMPONENT_SCHEMA.extend(
 
 
 CLIMATE_SCHEMA = vol.All(
-    cv.deprecated(CONF_DATA_COUNT, replacement_key=CONF_COUNT),
     BASE_STRUCT_SCHEMA.extend(
         {
             vol.Required(CONF_TARGET_TEMP): cv.positive_int,
@@ -221,13 +231,31 @@ CLIMATE_SCHEMA = vol.All(
             vol.Optional(CONF_MIN_TEMP, default=5): cv.positive_int,
             vol.Optional(CONF_STEP, default=0.5): vol.Coerce(float),
             vol.Optional(CONF_TEMPERATURE_UNIT, default=DEFAULT_TEMP_UNIT): cv.string,
+            vol.Optional(CONF_HVAC_ONOFF_REGISTER): cv.positive_int,
+            vol.Optional(CONF_HVAC_MODE_REGISTER): vol.Maybe(
+                {
+                    CONF_ADDRESS: cv.positive_int,
+                    CONF_HVAC_MODE_VALUES: {
+                        vol.Optional(CONF_HVAC_MODE_OFF): cv.positive_int,
+                        vol.Optional(CONF_HVAC_MODE_HEAT): cv.positive_int,
+                        vol.Optional(CONF_HVAC_MODE_COOL): cv.positive_int,
+                        vol.Optional(CONF_HVAC_MODE_HEAT_COOL): cv.positive_int,
+                        vol.Optional(CONF_HVAC_MODE_AUTO): cv.positive_int,
+                        vol.Optional(CONF_HVAC_MODE_DRY): cv.positive_int,
+                        vol.Optional(CONF_HVAC_MODE_FAN_ONLY): cv.positive_int,
+                    },
+                }
+            ),
         }
     ),
 )
 
 COVERS_SCHEMA = BASE_COMPONENT_SCHEMA.extend(
     {
-        vol.Optional(CONF_INPUT_TYPE, default=CALL_TYPE_REGISTER_HOLDING,): vol.In(
+        vol.Optional(
+            CONF_INPUT_TYPE,
+            default=CALL_TYPE_REGISTER_HOLDING,
+        ): vol.In(
             [
                 CALL_TYPE_REGISTER_HOLDING,
                 CALL_TYPE_COIL,
@@ -257,12 +285,15 @@ LIGHT_SCHEMA = BASE_SWITCH_SCHEMA.extend({})
 FAN_SCHEMA = BASE_SWITCH_SCHEMA.extend({})
 
 SENSOR_SCHEMA = vol.All(
-    cv.deprecated(CONF_REVERSE_ORDER),
     BASE_STRUCT_SCHEMA.extend(
         {
             vol.Optional(CONF_DEVICE_CLASS): SENSOR_DEVICE_CLASSES_SCHEMA,
+            vol.Optional(CONF_STATE_CLASS): SENSOR_STATE_CLASSES_SCHEMA,
             vol.Optional(CONF_UNIT_OF_MEASUREMENT): cv.string,
-            vol.Optional(CONF_REVERSE_ORDER): cv.boolean,
+            vol.Optional(CONF_SLAVE_COUNT, default=0): cv.positive_int,
+            vol.Optional(CONF_MIN_VALUE): number_validator,
+            vol.Optional(CONF_MAX_VALUE): number_validator,
+            vol.Optional(CONF_ZERO_SUPPRESS): number_validator,
         }
     ),
 )
@@ -271,8 +302,14 @@ BINARY_SENSOR_SCHEMA = BASE_COMPONENT_SCHEMA.extend(
     {
         vol.Optional(CONF_DEVICE_CLASS): BINARY_SENSOR_DEVICE_CLASSES_SCHEMA,
         vol.Optional(CONF_INPUT_TYPE, default=CALL_TYPE_COIL): vol.In(
-            [CALL_TYPE_COIL, CALL_TYPE_DISCRETE]
+            [
+                CALL_TYPE_COIL,
+                CALL_TYPE_DISCRETE,
+                CALL_TYPE_REGISTER_HOLDING,
+                CALL_TYPE_REGISTER_INPUT,
+            ]
         ),
+        vol.Optional(CONF_SLAVE_COUNT, default=0): cv.positive_int,
     }
 )
 
@@ -303,7 +340,7 @@ MODBUS_SCHEMA = vol.Schema(
 
 SERIAL_SCHEMA = MODBUS_SCHEMA.extend(
     {
-        vol.Required(CONF_TYPE): CONF_SERIAL,
+        vol.Required(CONF_TYPE): SERIAL,
         vol.Required(CONF_BAUDRATE): cv.positive_int,
         vol.Required(CONF_BYTESIZE): vol.Any(5, 6, 7, 8),
         vol.Required(CONF_METHOD): vol.Any("rtu", "ascii"),
@@ -317,7 +354,7 @@ ETHERNET_SCHEMA = MODBUS_SCHEMA.extend(
     {
         vol.Required(CONF_HOST): cv.string,
         vol.Required(CONF_PORT): cv.port,
-        vol.Required(CONF_TYPE): vol.Any(CONF_TCP, CONF_UDP, CONF_RTUOVERTCP),
+        vol.Required(CONF_TYPE): vol.Any(TCP, UDP, RTUOVERTCP),
     }
 )
 
@@ -326,6 +363,8 @@ CONFIG_SCHEMA = vol.Schema(
         DOMAIN: vol.All(
             cv.ensure_list,
             scan_interval_validator,
+            duplicate_entity_validator,
+            duplicate_modbus_validator,
             [
                 vol.Any(SERIAL_SCHEMA, ETHERNET_SCHEMA),
             ],
@@ -334,31 +373,25 @@ CONFIG_SCHEMA = vol.Schema(
     extra=vol.ALLOW_EXTRA,
 )
 
-SERVICE_WRITE_REGISTER_SCHEMA = vol.Schema(
-    {
-        vol.Optional(ATTR_HUB, default=DEFAULT_HUB): cv.string,
-        vol.Required(ATTR_UNIT): cv.positive_int,
-        vol.Required(ATTR_ADDRESS): cv.positive_int,
-        vol.Required(ATTR_VALUE): vol.Any(
-            cv.positive_int, vol.All(cv.ensure_list, [cv.positive_int])
-        ),
-    }
-)
 
-SERVICE_WRITE_COIL_SCHEMA = vol.Schema(
-    {
-        vol.Optional(ATTR_HUB, default=DEFAULT_HUB): cv.string,
-        vol.Required(ATTR_UNIT): cv.positive_int,
-        vol.Required(ATTR_ADDRESS): cv.positive_int,
-        vol.Required(ATTR_STATE): vol.Any(
-            cv.boolean, vol.All(cv.ensure_list, [cv.boolean])
-        ),
-    }
-)
+def get_hub(hass: HomeAssistant, name: str) -> ModbusHub:
+    """Return modbus hub with name."""
+    return cast(ModbusHub, hass.data[DOMAIN][name])
 
 
-async def async_setup(hass, config):
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up Modbus component."""
+    if DOMAIN not in config:
+        return True
     return await async_modbus_setup(
-        hass, config, SERVICE_WRITE_REGISTER_SCHEMA, SERVICE_WRITE_COIL_SCHEMA
+        hass,
+        config,
     )
+
+
+async def async_reset_platform(hass: HomeAssistant, integration_name: str) -> None:
+    """Release modbus resources."""
+    _LOGGER.info("Modbus reloading")
+    hubs = hass.data[DOMAIN]
+    for name in hubs:
+        await hubs[name].async_close()

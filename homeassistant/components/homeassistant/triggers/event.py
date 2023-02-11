@@ -5,10 +5,10 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.components.automation import AutomationActionType
 from homeassistant.const import CONF_EVENT_DATA, CONF_PLATFORM
 from homeassistant.core import CALLBACK_TYPE, Event, HassJob, HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv, template
+from homeassistant.helpers.trigger import TriggerActionType, TriggerInfo
 from homeassistant.helpers.typing import ConfigType
 
 CONF_EVENT_TYPE = "event_type"
@@ -34,16 +34,14 @@ def _schema_value(value: Any) -> Any:
 async def async_attach_trigger(
     hass: HomeAssistant,
     config: ConfigType,
-    action: AutomationActionType,
-    automation_info: dict[str, Any],
+    action: TriggerActionType,
+    trigger_info: TriggerInfo,
     *,
     platform_type: str = "event",
 ) -> CALLBACK_TYPE:
     """Listen for events based on configuration."""
-    trigger_data = automation_info.get("trigger_data", {}) if automation_info else {}
-    variables = None
-    if automation_info:
-        variables = automation_info.get("variables")
+    trigger_data = trigger_info["trigger_data"]
+    variables = trigger_info["variables"]
 
     template.attach(hass, config[CONF_EVENT_TYPE])
     event_types = template.render_complex(

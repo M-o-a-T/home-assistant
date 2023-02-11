@@ -15,10 +15,10 @@ API_KEY = "abc123"
 
 
 @pytest.fixture
-async def http_client(hass, aiohttp_client):
+async def http_client(hass, hass_client_no_auth):
     """Initialize a Home Assistant Server for testing this module."""
     await async_setup_component(hass, webhook.DOMAIN, {})
-    return await aiohttp_client(hass.http.app)
+    return await hass_client_no_auth()
 
 
 @pytest.fixture
@@ -37,10 +37,10 @@ async def webhook_id_with_api_key(hass):
     result = await hass.config_entries.flow.async_init(
         "mailgun", context={"source": config_entries.SOURCE_USER}
     )
-    assert result["type"] == data_entry_flow.RESULT_TYPE_FORM, result
+    assert result["type"] == data_entry_flow.FlowResultType.FORM, result
 
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
-    assert result["type"] == data_entry_flow.RESULT_TYPE_CREATE_ENTRY
+    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
 
     return result["result"].data["webhook_id"]
 
@@ -57,10 +57,10 @@ async def webhook_id_without_api_key(hass):
     result = await hass.config_entries.flow.async_init(
         "mailgun", context={"source": config_entries.SOURCE_USER}
     )
-    assert result["type"] == data_entry_flow.RESULT_TYPE_FORM, result
+    assert result["type"] == data_entry_flow.FlowResultType.FORM, result
 
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
-    assert result["type"] == data_entry_flow.RESULT_TYPE_CREATE_ENTRY
+    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
 
     return result["result"].data["webhook_id"]
 

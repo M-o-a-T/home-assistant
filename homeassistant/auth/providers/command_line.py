@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import collections
 from collections.abc import Mapping
 import logging
 import os
@@ -56,7 +55,7 @@ class CommandLineAuthProvider(AuthProvider):
         super().__init__(*args, **kwargs)
         self._user_meta: dict[str, dict[str, Any]] = {}
 
-    async def async_login_flow(self, context: dict | None) -> LoginFlow:
+    async def async_login_flow(self, context: dict[str, Any] | None) -> LoginFlow:
         """Return a flow to login."""
         return CommandLineLoginFlow(self)
 
@@ -89,12 +88,12 @@ class CommandLineAuthProvider(AuthProvider):
             for _line in stdout.splitlines():
                 try:
                     line = _line.decode().lstrip()
-                    if line.startswith("#"):
-                        continue
-                    key, value = line.split("=", 1)
                 except ValueError:
                     # malformed line
                     continue
+                if line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
                 key = key.strip()
                 value = value.strip()
                 if key in self.ALLOWED_META_KEYS:
@@ -146,10 +145,13 @@ class CommandLineLoginFlow(LoginFlow):
                 user_input.pop("password")
                 return await self.async_finish(user_input)
 
-        schema: dict[str, type] = collections.OrderedDict()
-        schema["username"] = str
-        schema["password"] = str
-
         return self.async_show_form(
-            step_id="init", data_schema=vol.Schema(schema), errors=errors
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("username"): str,
+                    vol.Required("password"): str,
+                }
+            ),
+            errors=errors,
         )

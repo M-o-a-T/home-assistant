@@ -1,5 +1,10 @@
 """Analytics helper class for the analytics integration."""
+from __future__ import annotations
+
 import asyncio
+from dataclasses import asdict as dataclass_asdict, dataclass
+from datetime import datetime
+from typing import Any
 import uuid
 
 import aiohttp
@@ -7,7 +12,7 @@ import async_timeout
 
 from homeassistant.components import hassio
 from homeassistant.components.api import ATTR_INSTALLATION_TYPE
-from homeassistant.components.automation.const import DOMAIN as AUTOMATION_DOMAIN
+from homeassistant.components.automation import DOMAIN as AUTOMATION_DOMAIN
 from homeassistant.components.energy import (
     DOMAIN as ENERGY_DOMAIN,
     is_configured as energy_is_configured,
@@ -17,7 +22,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.system_info import async_get_system_info
-from homeassistant.loader import IntegrationNotFound, async_get_integration
+from homeassistant.loader import IntegrationNotFound, async_get_integrations
 from homeassistant.setup import async_get_loaded_integrations
 
 from .const import (
@@ -30,6 +35,7 @@ from .const import (
     ATTR_AUTOMATION_COUNT,
     ATTR_BASE,
     ATTR_BOARD,
+    ATTR_CERTIFICATE,
     ATTR_CONFIGURED,
     ATTR_CUSTOM_INTEGRATIONS,
     ATTR_DIAGNOSTICS,
@@ -37,9 +43,7 @@ from .const import (
     ATTR_HEALTHY,
     ATTR_INTEGRATION_COUNT,
     ATTR_INTEGRATIONS,
-    ATTR_ONBOARDED,
     ATTR_OPERATING_SYSTEM,
-    ATTR_PREFERENCES,
     ATTR_PROTECTED,
     ATTR_SLUG,
     ATTR_STATE_COUNT,
@@ -57,6 +61,24 @@ from .const import (
 )
 
 
+@dataclass
+class AnalyticsData:
+    """Analytics data."""
+
+    onboarded: bool
+    preferences: dict[str, bool]
+    uuid: str | None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> AnalyticsData:
+        """Initialize analytics data from a dict."""
+        return cls(
+            data["onboarded"],
+            data["preferences"],
+            data["uuid"],
+        )
+
+
 class Analytics:
     """Analytics helper class for the analytics integration."""
 
@@ -64,13 +86,13 @@ class Analytics:
         """Initialize the Analytics class."""
         self.hass: HomeAssistant = hass
         self.session = async_get_clientsession(hass)
-        self._data = {ATTR_PREFERENCES: {}, ATTR_ONBOARDED: False, ATTR_UUID: None}
-        self._store: Store = hass.helpers.storage.Store(STORAGE_VERSION, STORAGE_KEY)
+        self._data = AnalyticsData(False, {}, None)
+        self._store = Store[dict[str, Any]](hass, STORAGE_VERSION, STORAGE_KEY)
 
     @property
     def preferences(self) -> dict:
         """Return the current active preferences."""
-        preferences = self._data[ATTR_PREFERENCES]
+        preferences = self._data.preferences
         return {
             ATTR_BASE: preferences.get(ATTR_BASE, False),
             ATTR_DIAGNOSTICS: preferences.get(ATTR_DIAGNOSTICS, False),
@@ -81,12 +103,12 @@ class Analytics:
     @property
     def onboarded(self) -> bool:
         """Return bool if the user has made a choice."""
-        return self._data[ATTR_ONBOARDED]
+        return self._data.onboarded
 
     @property
-    def uuid(self) -> bool:
+    def uuid(self) -> str | None:
         """Return the uuid for the analytics integration."""
-        return self._data[ATTR_UUID]
+        return self._data.uuid
 
     @property
     def endpoint(self) -> str:
@@ -105,50 +127,52 @@ class Analytics:
         """Load preferences."""
         stored = await self._store.async_load()
         if stored:
-            self._data = stored
+            self._data = AnalyticsData.from_dict(stored)
 
-        if self.supervisor:
-            supervisor_info = hassio.get_supervisor_info(self.hass)
+        if (
+            self.supervisor
+            and (supervisor_info := hassio.get_supervisor_info(self.hass)) is not None
+        ):
             if not self.onboarded:
                 # User have not configured analytics, get this setting from the supervisor
                 if supervisor_info[ATTR_DIAGNOSTICS] and not self.preferences.get(
                     ATTR_DIAGNOSTICS, False
                 ):
-                    self._data[ATTR_PREFERENCES][ATTR_DIAGNOSTICS] = True
+                    self._data.preferences[ATTR_DIAGNOSTICS] = True
                 elif not supervisor_info[ATTR_DIAGNOSTICS] and self.preferences.get(
                     ATTR_DIAGNOSTICS, False
                 ):
-                    self._data[ATTR_PREFERENCES][ATTR_DIAGNOSTICS] = False
+                    self._data.preferences[ATTR_DIAGNOSTICS] = False
 
     async def save_preferences(self, preferences: dict) -> None:
         """Save preferences."""
         preferences = PREFERENCE_SCHEMA(preferences)
-        self._data[ATTR_PREFERENCES].update(preferences)
-        self._data[ATTR_ONBOARDED] = True
+        self._data.preferences.update(preferences)
+        self._data.onboarded = True
 
-        await self._store.async_save(self._data)
+        await self._store.async_save(dataclass_asdict(self._data))
 
         if self.supervisor:
             await hassio.async_update_diagnostics(
                 self.hass, self.preferences.get(ATTR_DIAGNOSTICS, False)
             )
 
-    async def send_analytics(self, _=None) -> None:
+    async def send_analytics(self, _: datetime | None = None) -> None:
         """Send analytics."""
         supervisor_info = None
-        operating_system_info = {}
+        operating_system_info: dict[str, Any] = {}
 
         if not self.onboarded or not self.preferences.get(ATTR_BASE, False):
             LOGGER.debug("Nothing to submit")
             return
 
-        if self._data.get(ATTR_UUID) is None:
-            self._data[ATTR_UUID] = uuid.uuid4().hex
-            await self._store.async_save(self._data)
+        if self._data.uuid is None:
+            self._data.uuid = uuid.uuid4().hex
+            await self._store.async_save(dataclass_asdict(self._data))
 
         if self.supervisor:
             supervisor_info = hassio.get_supervisor_info(self.hass)
-            operating_system_info = hassio.get_os_info(self.hass)
+            operating_system_info = hassio.get_os_info(self.hass) or {}
 
         system_info = await async_get_system_info(self.hass)
         integrations = []
@@ -176,15 +200,9 @@ class Analytics:
         if self.preferences.get(ATTR_USAGE, False) or self.preferences.get(
             ATTR_STATISTICS, False
         ):
-            configured_integrations = await asyncio.gather(
-                *(
-                    async_get_integration(self.hass, domain)
-                    for domain in async_get_loaded_integrations(self.hass)
-                ),
-                return_exceptions=True,
-            )
-
-            for integration in configured_integrations:
+            domains = async_get_loaded_integrations(self.hass)
+            configured_integrations = await async_get_integrations(self.hass, domains)
+            for integration in configured_integrations.values():
                 if isinstance(integration, IntegrationNotFound):
                     continue
 
@@ -223,6 +241,7 @@ class Analytics:
                     )
 
         if self.preferences.get(ATTR_USAGE, False):
+            payload[ATTR_CERTIFICATE] = self.hass.http.ssl_certificate is not None
             payload[ATTR_INTEGRATIONS] = integrations
             payload[ATTR_CUSTOM_INTEGRATIONS] = custom_integrations
             if supervisor_info is not None:
@@ -250,7 +269,7 @@ class Analytics:
             )
 
         try:
-            with async_timeout.timeout(30):
+            async with async_timeout.timeout(30):
                 response = await self.session.post(self.endpoint, json=payload)
                 if response.status == 200:
                     LOGGER.info(

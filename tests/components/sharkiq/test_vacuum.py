@@ -1,13 +1,14 @@
 """Test the Shark IQ vacuum entity."""
 from __future__ import annotations
 
+from collections.abc import Iterable
 from copy import deepcopy
 import enum
-from typing import Any, Iterable
+from typing import Any
 from unittest.mock import patch
 
 import pytest
-from sharkiqpy import AylaApi, SharkIqAuthError, SharkIqNotAuthedError, SharkIqVacuum
+from sharkiq import AylaApi, SharkIqAuthError, SharkIqNotAuthedError, SharkIqVacuum
 
 from homeassistant.components.homeassistant import SERVICE_UPDATE_ENTITY
 from homeassistant.components.sharkiq import DOMAIN
@@ -32,15 +33,7 @@ from homeassistant.components.vacuum import (
     STATE_IDLE,
     STATE_PAUSED,
     STATE_RETURNING,
-    SUPPORT_BATTERY,
-    SUPPORT_FAN_SPEED,
-    SUPPORT_LOCATE,
-    SUPPORT_PAUSE,
-    SUPPORT_RETURN_HOME,
-    SUPPORT_START,
-    SUPPORT_STATE,
-    SUPPORT_STATUS,
-    SUPPORT_STOP,
+    VacuumEntityFeature,
 )
 from homeassistant.const import (
     ATTR_ENTITY_ID,
@@ -64,15 +57,15 @@ from tests.common import MockConfigEntry
 
 VAC_ENTITY_ID = f"vacuum.{SHARK_DEVICE_DICT['product_name'].lower()}"
 EXPECTED_FEATURES = (
-    SUPPORT_BATTERY
-    | SUPPORT_FAN_SPEED
-    | SUPPORT_PAUSE
-    | SUPPORT_RETURN_HOME
-    | SUPPORT_START
-    | SUPPORT_STATE
-    | SUPPORT_STATUS
-    | SUPPORT_STOP
-    | SUPPORT_LOCATE
+    VacuumEntityFeature.BATTERY
+    | VacuumEntityFeature.FAN_SPEED
+    | VacuumEntityFeature.PAUSE
+    | VacuumEntityFeature.RETURN_HOME
+    | VacuumEntityFeature.START
+    | VacuumEntityFeature.STATE
+    | VacuumEntityFeature.STATUS
+    | VacuumEntityFeature.STOP
+    | VacuumEntityFeature.LOCATE
 )
 
 
@@ -90,7 +83,7 @@ class MockAyla(AylaApi):
         """Get the list of devices."""
         shark = MockShark(self, SHARK_DEVICE_DICT)
         shark.properties_full = deepcopy(SHARK_PROPERTIES_DICT)
-        shark._update_metadata(SHARK_METADATA_DICT)  # pylint: disable=protected-access
+        shark._update_metadata(SHARK_METADATA_DICT)
         return [shark]
 
     async def async_request(self, http_method: str, url: str, **kwargs):
@@ -117,7 +110,7 @@ class MockShark(SharkIqVacuum):
 
 
 @pytest.fixture(autouse=True)
-@patch("sharkiqpy.ayla_api.AylaApi", MockAyla)
+@patch("sharkiq.ayla_api.AylaApi", MockAyla)
 async def setup_integration(hass):
     """Build the mock integration."""
     entry = MockConfigEntry(
@@ -207,7 +200,7 @@ async def test_device_properties(
     assert getattr(device, device_property) == target_value
 
 
-async def test_locate(hass):
+async def test_locate(hass: HomeAssistant) -> None:
     """Test that the locate command works."""
     with patch.object(SharkIqVacuum, "async_find_device") as mock_locate:
         data = {ATTR_ENTITY_ID: VAC_ENTITY_ID}
@@ -224,7 +217,7 @@ async def test_locate(hass):
         (RuntimeError, False),
     ],
 )
-@patch("sharkiqpy.ayla_api.AylaApi", MockAyla)
+@patch("sharkiq.ayla_api.AylaApi", MockAyla)
 async def test_coordinator_updates(
     hass: HomeAssistant, side_effect: Exception | None, success: bool
 ) -> None:

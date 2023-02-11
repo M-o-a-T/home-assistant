@@ -8,7 +8,7 @@ from aioswitcher.device import SwitcherBase
 import voluptuous as vol
 
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
-from homeassistant.const import CONF_DEVICE_ID, EVENT_HOMEASSISTANT_STOP
+from homeassistant.const import CONF_DEVICE_ID, EVENT_HOMEASSISTANT_STOP, Platform
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import (
     config_validation as cv,
@@ -16,6 +16,7 @@ from homeassistant.helpers import (
     update_coordinator,
 )
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.typing import ConfigType
 
 from .const import (
     CONF_DEVICE_PASSWORD,
@@ -28,7 +29,13 @@ from .const import (
 )
 from .utils import async_start_bridge, async_stop_bridge
 
-PLATFORMS = ["switch", "sensor"]
+PLATFORMS = [
+    Platform.BUTTON,
+    Platform.CLIMATE,
+    Platform.COVER,
+    Platform.SENSOR,
+    Platform.SWITCH,
+]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -49,7 +56,7 @@ CCONFIG_SCHEMA = vol.Schema(
 )
 
 
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the switcher component."""
     hass.data.setdefault(DOMAIN, {})
 
@@ -74,10 +81,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # Existing device update device data
         if device.device_id in hass.data[DOMAIN][DATA_DEVICE]:
-            wrapper: SwitcherDeviceWrapper = hass.data[DOMAIN][DATA_DEVICE][
+            coordinator: SwitcherDataUpdateCoordinator = hass.data[DOMAIN][DATA_DEVICE][
                 device.device_id
             ]
-            wrapper.async_set_updated_data(device)
+            coordinator.async_set_updated_data(device)
             return
 
         # New device - create device
@@ -89,56 +96,55 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             device.device_type.hex_rep,
         )
 
-        wrapper = hass.data[DOMAIN][DATA_DEVICE][
+        coordinator = hass.data[DOMAIN][DATA_DEVICE][
             device.device_id
-        ] = SwitcherDeviceWrapper(hass, entry, device)
-        hass.async_create_task(wrapper.async_setup())
+        ] = SwitcherDataUpdateCoordinator(hass, entry, device)
+        coordinator.async_setup()
 
-    async def platforms_setup_task() -> None:
-        # Must be ready before dispatcher is called
-        for platform in PLATFORMS:
-            await hass.config_entries.async_forward_entry_setup(entry, platform)
+    # Must be ready before dispatcher is called
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-        discovery_task = hass.data[DOMAIN].pop(DATA_DISCOVERY, None)
-        if discovery_task is not None:
-            discovered_devices = await discovery_task
-            for device in discovered_devices.values():
-                on_device_data_callback(device)
+    discovery_task = hass.data[DOMAIN].pop(DATA_DISCOVERY, None)
+    if discovery_task is not None:
+        discovered_devices = await discovery_task
+        for device in discovered_devices.values():
+            on_device_data_callback(device)
 
-        await async_start_bridge(hass, on_device_data_callback)
+    await async_start_bridge(hass, on_device_data_callback)
 
-    hass.async_create_task(platforms_setup_task())
-
-    @callback
     async def stop_bridge(event: Event) -> None:
         await async_stop_bridge(hass)
 
-    hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, stop_bridge)
+    entry.async_on_unload(
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, stop_bridge)
+    )
 
     return True
 
 
-class SwitcherDeviceWrapper(update_coordinator.DataUpdateCoordinator):
-    """Wrapper for a Switcher device with Home Assistant specific functions."""
+class SwitcherDataUpdateCoordinator(
+    update_coordinator.DataUpdateCoordinator[SwitcherBase]
+):
+    """Switcher device data update coordinator."""
 
     def __init__(
         self, hass: HomeAssistant, entry: ConfigEntry, device: SwitcherBase
     ) -> None:
-        """Initialize the Switcher device wrapper."""
+        """Initialize the Switcher device coordinator."""
         super().__init__(
             hass,
             _LOGGER,
             name=device.name,
             update_interval=timedelta(seconds=MAX_UPDATE_INTERVAL_SEC),
         )
-        self.hass = hass
         self.entry = entry
         self.data = device
 
-    async def _async_update_data(self) -> None:
+    async def _async_update_data(self) -> SwitcherBase:
         """Mark device offline if no data."""
         raise update_coordinator.UpdateFailed(
-            f"Device {self.name} did not send update for {MAX_UPDATE_INTERVAL_SEC} seconds"
+            f"Device {self.name} did not send update for"
+            f" {MAX_UPDATE_INTERVAL_SEC} seconds"
         )
 
     @property
@@ -156,9 +162,10 @@ class SwitcherDeviceWrapper(update_coordinator.DataUpdateCoordinator):
         """Switcher device mac address."""
         return self.data.mac_address  # type: ignore[no-any-return]
 
-    async def async_setup(self) -> None:
-        """Set up the wrapper."""
-        dev_reg = await device_registry.async_get_registry(self.hass)
+    @callback
+    def async_setup(self) -> None:
+        """Set up the coordinator."""
+        dev_reg = device_registry.async_get(self.hass)
         dev_reg.async_get_or_create(
             config_entry_id=self.entry.entry_id,
             connections={(device_registry.CONNECTION_NETWORK_MAC, self.mac_address)},
