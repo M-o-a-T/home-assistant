@@ -44,7 +44,7 @@ def is_installed(package: str) -> bool:
     except ValueError:
         # This is a zip file. We no longer use this in Home Assistant,
         # leaving it in for custom components.
-        req = pkg_resources.Requirement.parse(urlparse(package).fragment)
+        return False
 
     try:
         installed_version = version(req.project_name)
