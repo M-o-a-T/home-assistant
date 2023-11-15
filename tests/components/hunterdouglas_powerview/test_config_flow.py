@@ -1,5 +1,6 @@
 """Test the Logitech Harmony Hub config flow."""
 import asyncio
+from ipaddress import ip_address
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -12,9 +13,10 @@ from homeassistant.core import HomeAssistant
 
 from tests.common import MockConfigEntry, load_fixture
 
+ZEROCONF_HOST = "1.2.3.4"
 HOMEKIT_DISCOVERY_INFO = zeroconf.ZeroconfServiceInfo(
-    host="1.2.3.4",
-    addresses=["1.2.3.4"],
+    ip_address=ip_address(ZEROCONF_HOST),
+    ip_addresses=[ip_address(ZEROCONF_HOST)],
     hostname="mock_hostname",
     name="Hunter Douglas Powerview Hub._hap._tcp.local.",
     port=None,
@@ -23,8 +25,8 @@ HOMEKIT_DISCOVERY_INFO = zeroconf.ZeroconfServiceInfo(
 )
 
 ZEROCONF_DISCOVERY_INFO = zeroconf.ZeroconfServiceInfo(
-    host="1.2.3.4",
-    addresses=["1.2.3.4"],
+    ip_address=ip_address(ZEROCONF_HOST),
+    ip_addresses=[ip_address(ZEROCONF_HOST)],
     hostname="mock_hostname",
     name="Hunter Douglas Powerview Hub._powerview._tcp.local.",
     port=None,
@@ -176,7 +178,7 @@ async def test_user_form_legacy(hass: HomeAssistant) -> None:
     assert result4["type"] == "abort"
 
 
-@pytest.mark.parametrize("source, discovery_info", DISCOVERY_DATA)
+@pytest.mark.parametrize(("source", "discovery_info"), DISCOVERY_DATA)
 async def test_form_homekit_and_dhcp_cannot_connect(
     hass: HomeAssistant, source, discovery_info
 ) -> None:
@@ -204,7 +206,7 @@ async def test_form_homekit_and_dhcp_cannot_connect(
     assert result["reason"] == "cannot_connect"
 
 
-@pytest.mark.parametrize("source, discovery_info", DISCOVERY_DATA)
+@pytest.mark.parametrize(("source", "discovery_info"), DISCOVERY_DATA)
 async def test_form_homekit_and_dhcp(
     hass: HomeAssistant, source, discovery_info
 ) -> None:

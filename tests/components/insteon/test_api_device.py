@@ -5,6 +5,7 @@ from unittest.mock import patch
 from pyinsteon.constants import DeviceAction
 from pyinsteon.topics import DEVICE_LIST_CHANGED
 from pyinsteon.utils import publish_topic
+import pytest
 
 from homeassistant.components import insteon
 from homeassistant.components.insteon.api import async_load_api
@@ -86,7 +87,9 @@ async def test_no_ha_device(
 
 
 async def test_no_insteon_device(
-    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    device_registry: dr.DeviceRegistry,
 ) -> None:
     """Test response when no Insteon device exists."""
     config_entry = MockConfigEntry(
@@ -102,15 +105,14 @@ async def test_no_insteon_device(
     devices = MockDevices()
     await devices.async_load()
 
-    dev_reg = dr.async_get(hass)
     # Create device registry entry for a Insteon device not in the Insteon devices list
-    ha_device_1 = dev_reg.async_get_or_create(
+    ha_device_1 = device_registry.async_get_or_create(
         config_entry_id=config_entry.entry_id,
         identifiers={(DOMAIN, "AA.BB.CC")},
         name="HA Device Only",
     )
     # Create device registry entry for a non-Insteon device
-    ha_device_2 = dev_reg.async_get_or_create(
+    ha_device_2 = device_registry.async_get_or_create(
         config_entry_id=config_entry.entry_id,
         identifiers={("other_domain", "no address")},
         name="HA Device Only",
@@ -154,6 +156,8 @@ async def test_get_ha_device_name(
         assert name == ""
 
 
+# This tests needs to be adjusted to remove lingering tasks
+@pytest.mark.parametrize("expected_lingering_tasks", [True])
 async def test_add_device_api(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator
 ) -> None:

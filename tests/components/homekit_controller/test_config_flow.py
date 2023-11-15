@@ -1,5 +1,6 @@
 """Tests for homekit_controller config flow."""
 import asyncio
+from ipaddress import ip_address
 import unittest.mock
 from unittest.mock import AsyncMock, patch
 
@@ -174,10 +175,10 @@ def get_device_discovery_info(
 ) -> zeroconf.ZeroconfServiceInfo:
     """Turn a aiohomekit format zeroconf entry into a homeassistant one."""
     result = zeroconf.ZeroconfServiceInfo(
-        host="127.0.0.1",
+        ip_address=ip_address("127.0.0.1"),
+        ip_addresses=[ip_address("127.0.0.1")],
         hostname=device.description.name,
         name=device.description.name + "._hap._tcp.local.",
-        addresses=["127.0.0.1"],
         port=8080,
         properties={
             "md": device.description.model,
@@ -555,7 +556,7 @@ async def test_discovery_already_configured_update_csharp(
     assert entry.data["AccessoryPort"] == discovery_info.port
 
 
-@pytest.mark.parametrize("exception,expected", PAIRING_START_ABORT_ERRORS)
+@pytest.mark.parametrize(("exception", "expected"), PAIRING_START_ABORT_ERRORS)
 async def test_pair_abort_errors_on_start(
     hass: HomeAssistant, controller, exception, expected
 ) -> None:
@@ -579,7 +580,7 @@ async def test_pair_abort_errors_on_start(
     assert result["reason"] == expected
 
 
-@pytest.mark.parametrize("exception,expected", PAIRING_TRY_LATER_ERRORS)
+@pytest.mark.parametrize(("exception", "expected"), PAIRING_TRY_LATER_ERRORS)
 async def test_pair_try_later_errors_on_start(
     hass: HomeAssistant, controller, exception, expected
 ) -> None:
@@ -618,7 +619,7 @@ async def test_pair_try_later_errors_on_start(
     assert result4["title"] == "Koogeek-LS1-20833F"
 
 
-@pytest.mark.parametrize("exception,expected", PAIRING_START_FORM_ERRORS)
+@pytest.mark.parametrize(("exception", "expected"), PAIRING_START_FORM_ERRORS)
 async def test_pair_form_errors_on_start(
     hass: HomeAssistant, controller, exception, expected
 ) -> None:
@@ -669,7 +670,7 @@ async def test_pair_form_errors_on_start(
     assert result["title"] == "Koogeek-LS1-20833F"
 
 
-@pytest.mark.parametrize("exception,expected", PAIRING_FINISH_ABORT_ERRORS)
+@pytest.mark.parametrize(("exception", "expected"), PAIRING_FINISH_ABORT_ERRORS)
 async def test_pair_abort_errors_on_finish(
     hass: HomeAssistant, controller, exception, expected
 ) -> None:
@@ -711,7 +712,7 @@ async def test_pair_abort_errors_on_finish(
     assert result["reason"] == expected
 
 
-@pytest.mark.parametrize("exception,expected", PAIRING_FINISH_FORM_ERRORS)
+@pytest.mark.parametrize(("exception", "expected"), PAIRING_FINISH_FORM_ERRORS)
 async def test_pair_form_errors_on_finish(
     hass: HomeAssistant, controller, exception, expected
 ) -> None:
@@ -1179,3 +1180,80 @@ async def test_bluetooth_valid_device_discovery_unpaired(
     assert result3["data"] == {}
 
     assert storage.get_map("00:00:00:00:00:00") is not None
+
+
+async def test_discovery_updates_ip_when_config_entry_set_up(
+    hass: HomeAssistant, controller
+) -> None:
+    """Already configured updates ip when config entry set up."""
+    entry = MockConfigEntry(
+        domain="homekit_controller",
+        data={
+            "AccessoryIP": "4.4.4.4",
+            "AccessoryPort": 66,
+            "AccessoryPairingID": "AA:BB:CC:DD:EE:FF",
+        },
+        unique_id="aa:bb:cc:dd:ee:ff",
+    )
+    entry.add_to_hass(hass)
+
+    connection_mock = AsyncMock()
+    hass.data[KNOWN_DEVICES] = {"AA:BB:CC:DD:EE:FF": connection_mock}
+
+    device = setup_mock_accessory(controller)
+    discovery_info = get_device_discovery_info(device)
+
+    # Set device as already paired
+    discovery_info.properties["sf"] = 0x00
+    discovery_info.properties[zeroconf.ATTR_PROPERTIES_ID] = "Aa:bB:cC:dD:eE:fF"
+
+    # Device is discovered
+    result = await hass.config_entries.flow.async_init(
+        "homekit_controller",
+        context={"source": config_entries.SOURCE_ZEROCONF},
+        data=discovery_info,
+    )
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+    await hass.async_block_till_done()
+
+    assert entry.data["AccessoryIP"] == discovery_info.host
+    assert entry.data["AccessoryPort"] == discovery_info.port
+
+
+async def test_discovery_updates_ip_config_entry_not_set_up(
+    hass: HomeAssistant, controller
+) -> None:
+    """Already configured updates ip when the config entry is not set up."""
+    entry = MockConfigEntry(
+        domain="homekit_controller",
+        data={
+            "AccessoryIP": "4.4.4.4",
+            "AccessoryPort": 66,
+            "AccessoryPairingID": "AA:BB:CC:DD:EE:FF",
+        },
+        unique_id="aa:bb:cc:dd:ee:ff",
+    )
+    entry.add_to_hass(hass)
+
+    AsyncMock()
+
+    device = setup_mock_accessory(controller)
+    discovery_info = get_device_discovery_info(device)
+
+    # Set device as already paired
+    discovery_info.properties["sf"] = 0x00
+    discovery_info.properties[zeroconf.ATTR_PROPERTIES_ID] = "Aa:bB:cC:dD:eE:fF"
+
+    # Device is discovered
+    result = await hass.config_entries.flow.async_init(
+        "homekit_controller",
+        context={"source": config_entries.SOURCE_ZEROCONF},
+        data=discovery_info,
+    )
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+    await hass.async_block_till_done()
+
+    assert entry.data["AccessoryIP"] == discovery_info.host
+    assert entry.data["AccessoryPort"] == discovery_info.port

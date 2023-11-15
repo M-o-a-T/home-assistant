@@ -154,7 +154,7 @@ MELACHA_TEST_IDS = [
 
 
 @pytest.mark.parametrize(
-    [
+    (
         "now",
         "candle_lighting",
         "havdalah",
@@ -163,12 +163,13 @@ MELACHA_TEST_IDS = [
         "latitude",
         "longitude",
         "result",
-    ],
+    ),
     MELACHA_PARAMS,
     ids=MELACHA_TEST_IDS,
 )
 async def test_issur_melacha_sensor(
     hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
     now,
     candle_lighting,
     havdalah,
@@ -185,8 +186,6 @@ async def test_issur_melacha_sensor(
     hass.config.set_time_zone(tzname)
     hass.config.latitude = latitude
     hass.config.longitude = longitude
-
-    registry = er.async_get(hass)
 
     with alter_time(test_time):
         assert await async_setup_component(
@@ -208,7 +207,7 @@ async def test_issur_melacha_sensor(
             hass.states.get("binary_sensor.test_issur_melacha_in_effect").state
             == result["state"]
         )
-        entity = registry.async_get("binary_sensor.test_issur_melacha_in_effect")
+        entity = entity_registry.async_get("binary_sensor.test_issur_melacha_in_effect")
         target_uid = "_".join(
             map(
                 str,
@@ -237,7 +236,7 @@ async def test_issur_melacha_sensor(
 
 
 @pytest.mark.parametrize(
-    [
+    (
         "now",
         "candle_lighting",
         "havdalah",
@@ -246,7 +245,7 @@ async def test_issur_melacha_sensor(
         "latitude",
         "longitude",
         "result",
-    ],
+    ),
     [
         make_nyc_test_params(
             dt(2020, 10, 23, 17, 44, 59, 999999), [STATE_OFF, STATE_ON]

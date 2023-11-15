@@ -143,7 +143,8 @@ async def test_user_config_flow_success(hass: HomeAssistant, life360_api) -> Non
 
 
 @pytest.mark.parametrize(
-    "exception,error", [(LoginError, "invalid_auth"), (Life360Error, "cannot_connect")]
+    ("exception", "error"),
+    [(LoginError, "invalid_auth"), (Life360Error, "cannot_connect")],
 )
 async def test_user_config_flow_error(
     hass: HomeAssistant, life360_api, caplog: pytest.LogCaptureFixture, exception, error
@@ -272,6 +273,15 @@ async def test_reauth_config_flow_login_error(
     assert "password" in schema
     key = list(schema)[0]
     assert key.default() == TEST_PW
+
+    # Simulate hitting RECONFIGURE button.
+    result = await hass.config_entries.flow.async_configure(result["flow_id"])
+    await hass.async_block_till_done()
+
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "reauth_confirm"
+    assert result["errors"]
+    assert result["errors"]["base"] == "invalid_auth"
 
     # Simulate getting a new, valid password.
     life360_api.get_authorization.reset_mock(side_effect=True)

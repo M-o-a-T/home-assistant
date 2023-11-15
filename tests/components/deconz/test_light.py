@@ -55,7 +55,7 @@ async def test_no_lights_or_groups(
 
 
 @pytest.mark.parametrize(
-    "input,expected",
+    ("input", "expected"),
     [
         (  # RGB light in color temp color mode
             {
@@ -185,7 +185,25 @@ async def test_no_lights_or_groups(
                 "entity_id": "light.lidl_xmas_light",
                 "state": STATE_ON,
                 "attributes": {
-                    ATTR_EFFECT_LIST: [EFFECT_COLORLOOP],
+                    ATTR_EFFECT_LIST: [
+                        EFFECT_COLORLOOP,
+                        "carnival",
+                        "collide",
+                        "fading",
+                        "fireworks",
+                        "flag",
+                        "glow",
+                        "rainbow",
+                        "snake",
+                        "snow",
+                        "sparkles",
+                        "steady",
+                        "strobe",
+                        "twinkle",
+                        "updown",
+                        "vintage",
+                        "waves",
+                    ],
                     ATTR_SUPPORTED_COLOR_MODES: [ColorMode.HS],
                     ATTR_COLOR_MODE: ColorMode.HS,
                     ATTR_BRIGHTNESS: 25,
@@ -373,7 +391,7 @@ async def test_light_state_change(
 
 
 @pytest.mark.parametrize(
-    "input,expected",
+    ("input", "expected"),
     [
         (  # Turn on light with hue and sat
             {
@@ -706,7 +724,7 @@ async def test_configuration_tool(
 
 
 @pytest.mark.parametrize(
-    "input,expected",
+    ("input", "expected"),
     [
         (
             {
@@ -859,7 +877,7 @@ async def test_groups(
 
 
 @pytest.mark.parametrize(
-    "input,expected",
+    ("input", "expected"),
     [
         (  # Turn on group with short color loop
             {
@@ -1184,9 +1202,9 @@ async def test_non_color_light_reports_color(
     await hass.async_block_till_done()
 
     # Bug is fixed if we reach this point, but device won't have neither color temp nor color
-    with pytest.raises(KeyError):
-        assert hass.states.get("light.group").attributes[ATTR_COLOR_TEMP]
-        assert hass.states.get("light.group").attributes[ATTR_HS_COLOR]
+    with pytest.raises(AssertionError):
+        assert hass.states.get("light.group").attributes.get(ATTR_COLOR_TEMP) is None
+        assert hass.states.get("light.group").attributes.get(ATTR_HS_COLOR) is None
 
 
 async def test_verify_group_supported_features(

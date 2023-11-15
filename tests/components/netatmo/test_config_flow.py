@@ -1,4 +1,5 @@
 """Test the Netatmo config flow."""
+from ipaddress import ip_address
 from unittest.mock import patch
 
 from pyatmo.const import ALL_SCOPES
@@ -18,6 +19,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_entry_oauth2_flow
 
 from tests.common import MockConfigEntry
+from tests.test_util.aiohttp import AiohttpClientMocker
+from tests.typing import ClientSessionGenerator
 
 CLIENT_ID = "1234"
 CLIENT_SECRET = "5678"
@@ -42,8 +45,8 @@ async def test_abort_if_existing_entry(hass: HomeAssistant) -> None:
         "netatmo",
         context={"source": config_entries.SOURCE_HOMEKIT},
         data=zeroconf.ZeroconfServiceInfo(
-            host="0.0.0.0",
-            addresses=["0.0.0.0"],
+            ip_address=ip_address("192.168.1.5"),
+            ip_addresses=[ip_address("192.168.1.5")],
             hostname="mock_hostname",
             name="mock_name",
             port=None,
@@ -56,8 +59,11 @@ async def test_abort_if_existing_entry(hass: HomeAssistant) -> None:
 
 
 async def test_full_flow(
-    hass, hass_client_no_auth, aioclient_mock, current_request_with_host
-):
+    hass: HomeAssistant,
+    hass_client_no_auth: ClientSessionGenerator,
+    aioclient_mock: AiohttpClientMocker,
+    current_request_with_host: None,
+) -> None:
     """Check full flow."""
     assert await setup.async_setup_component(
         hass,
@@ -228,8 +234,11 @@ async def test_option_flow_wrong_coordinates(hass: HomeAssistant) -> None:
 
 
 async def test_reauth(
-    hass, hass_client_no_auth, aioclient_mock, current_request_with_host
-):
+    hass: HomeAssistant,
+    hass_client_no_auth: ClientSessionGenerator,
+    aioclient_mock: AiohttpClientMocker,
+    current_request_with_host: None,
+) -> None:
     """Test initialization of the reauth flow."""
     assert await setup.async_setup_component(
         hass,

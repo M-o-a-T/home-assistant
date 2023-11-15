@@ -17,6 +17,7 @@ import fractions
 import io
 import logging
 import math
+from pathlib import Path
 import threading
 from unittest.mock import patch
 
@@ -75,9 +76,9 @@ TIMEOUT = 15
 
 
 @pytest.fixture
-def filename(tmpdir):
+def filename(tmp_path: Path) -> str:
     """Use this filename for the tests."""
-    return f"{tmpdir}/test.mp4"
+    return str(tmp_path / "test.mp4")
 
 
 @pytest.fixture(autouse=True)
@@ -244,7 +245,7 @@ class FakePyAvBuffer:
         # Forward to appropriate FakeStream
         packet.stream.mux(packet)
         # Make new init/part data available to the worker
-        self.memory_file.write(b"\x00\x00\x00\x00moov")
+        self.memory_file.write(b"\x00\x00\x00\x08moov")
 
     def close(self):
         """Close the buffer."""
@@ -642,7 +643,7 @@ async def test_pts_out_of_order(hass: HomeAssistant) -> None:
 
 
 async def test_stream_stopped_while_decoding(hass: HomeAssistant) -> None:
-    """Tests that worker quits when stop() is called while decodign."""
+    """Tests that worker quits when stop() is called while decoding."""
     # Add some synchronization so that the test can pause the background
     # worker. When the worker is stopped, the test invokes stop() which
     # will cause the worker thread to exit once it enters the decode
@@ -749,8 +750,10 @@ test_worker_log_cases = (
 )
 
 
-@pytest.mark.parametrize("stream_url, redacted_url", test_worker_log_cases)
-async def test_worker_log(hass, caplog, stream_url, redacted_url):
+@pytest.mark.parametrize(("stream_url", "redacted_url"), test_worker_log_cases)
+async def test_worker_log(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture, stream_url, redacted_url
+) -> None:
     """Test that the worker logs the url without username and password."""
     stream = Stream(
         hass,
@@ -787,7 +790,7 @@ def worker_finished_stream():
     return worker_finished, MockStream
 
 
-async def test_durations(hass, worker_finished_stream):
+async def test_durations(hass: HomeAssistant, worker_finished_stream) -> None:
     """Test that the duration metadata matches the media."""
 
     # Use a target part duration which has a slight mismatch
@@ -869,7 +872,9 @@ async def test_durations(hass, worker_finished_stream):
     await stream.stop()
 
 
-async def test_has_keyframe(hass, h264_video, worker_finished_stream):
+async def test_has_keyframe(
+    hass: HomeAssistant, h264_video, worker_finished_stream
+) -> None:
     """Test that the has_keyframe metadata matches the media."""
     await async_setup_component(
         hass,
@@ -913,7 +918,7 @@ async def test_has_keyframe(hass, h264_video, worker_finished_stream):
     await stream.stop()
 
 
-async def test_h265_video_is_hvc1(hass, worker_finished_stream):
+async def test_h265_video_is_hvc1(hass: HomeAssistant, worker_finished_stream) -> None:
     """Test that a h265 video gets muxed as hvc1."""
     await async_setup_component(
         hass,
@@ -960,8 +965,8 @@ async def test_h265_video_is_hvc1(hass, worker_finished_stream):
     }
 
 
-async def test_get_image(hass, h264_video, filename):
-    """Test that the has_keyframe metadata matches the media."""
+async def test_get_image(hass: HomeAssistant, h264_video, filename) -> None:
+    """Test getting an image from the stream."""
     await async_setup_component(hass, "stream", {"stream": {}})
 
     # Since libjpeg-turbo is not installed on the CI runner, we use a mock
@@ -971,10 +976,30 @@ async def test_get_image(hass, h264_video, filename):
         mock_turbo_jpeg_singleton.instance.return_value = mock_turbo_jpeg()
         stream = create_stream(hass, h264_video, {}, dynamic_stream_settings())
 
-    with patch.object(hass.config, "is_allowed_path", return_value=True):
+    worker_wake = threading.Event()
+
+    temp_av_open = av.open
+
+    def blocking_open(stream_source, *args, **kwargs):
+        # Block worker thread until test wakes up
+        worker_wake.wait()
+        return temp_av_open(stream_source, *args, **kwargs)
+
+    with patch.object(hass.config, "is_allowed_path", return_value=True), patch(
+        "av.open", new=blocking_open
+    ):
         make_recording = hass.async_create_task(stream.async_record(filename))
+        assert stream._keyframe_converter._image is None
+        # async_get_image should not work because there is no keyframe yet
+        assert not await stream.async_get_image()
+        # async_get_image should work if called with wait_for_next_keyframe=True
+        next_keyframe_request = hass.async_create_task(
+            stream.async_get_image(wait_for_next_keyframe=True)
+        )
+        worker_wake.set()
         await make_recording
-    assert stream._keyframe_converter._image is None
+
+    assert await next_keyframe_request == EMPTY_8_6_JPEG
 
     assert await stream.async_get_image() == EMPTY_8_6_JPEG
 
@@ -1002,8 +1027,8 @@ async def test_worker_disable_ll_hls(hass: HomeAssistant) -> None:
     assert stream_settings.ll_hls is False
 
 
-async def test_get_image_rotated(hass, h264_video, filename):
-    """Test that the has_keyframe metadata matches the media."""
+async def test_get_image_rotated(hass: HomeAssistant, h264_video, filename) -> None:
+    """Test getting a rotated image."""
     await async_setup_component(hass, "stream", {"stream": {}})
 
     # Since libjpeg-turbo is not installed on the CI runner, we use a mock

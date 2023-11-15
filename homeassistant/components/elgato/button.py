@@ -23,31 +23,22 @@ from .coordinator import ElgatoDataUpdateCoordinator
 from .entity import ElgatoEntity
 
 
-@dataclass
-class ElgatoButtonEntityDescriptionMixin:
-    """Mixin values for Elgato entities."""
+@dataclass(kw_only=True)
+class ElgatoButtonEntityDescription(ButtonEntityDescription):
+    """Class describing Elgato button entities."""
 
     press_fn: Callable[[Elgato], Awaitable[Any]]
-
-
-@dataclass
-class ElgatoButtonEntityDescription(
-    ButtonEntityDescription, ElgatoButtonEntityDescriptionMixin
-):
-    """Class describing Elgato button entities."""
 
 
 BUTTONS = [
     ElgatoButtonEntityDescription(
         key="identify",
-        name="Identify",
-        icon="mdi:help",
+        device_class=ButtonDeviceClass.IDENTIFY,
         entity_category=EntityCategory.CONFIG,
         press_fn=lambda client: client.identify(),
     ),
     ElgatoButtonEntityDescription(
         key="restart",
-        name="Restart",
         device_class=ButtonDeviceClass.RESTART,
         entity_category=EntityCategory.CONFIG,
         press_fn=lambda client: client.restart(),
@@ -94,5 +85,5 @@ class ElgatoButtonEntity(ElgatoEntity, ButtonEntity):
             await self.entity_description.press_fn(self.coordinator.client)
         except ElgatoError as error:
             raise HomeAssistantError(
-                "An error occurred while identifying the Elgato Light"
+                "An error occurred while communicating with the Elgato Light"
             ) from error

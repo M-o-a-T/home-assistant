@@ -22,7 +22,9 @@ from tests.test_util.aiohttp import AiohttpClientMocker
 
 
 async def test_select_async_setup_entry(
-    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    entity_registry: er.EntityRegistry,
 ) -> None:
     """Test select platform."""
 
@@ -37,17 +39,15 @@ async def test_select_async_setup_entry(
 
     await add_mock_config(hass)
 
-    registry = er.async_get(hass)
-
     assert len(aioclient_mock.mock_calls) == 1
 
     # Test MyZone Select Entity
-    entity_id = "select.ac_one_myzone"
+    entity_id = "select.myzone_myzone"
     state = hass.states.get(entity_id)
     assert state
     assert state.state == "Zone open with Sensor"
 
-    entry = registry.async_get(entity_id)
+    entry = entity_registry.async_get(entity_id)
     assert entry
     assert entry.unique_id == "uniqueid-ac1-myzone"
 

@@ -2,14 +2,20 @@
 from math import isclose
 from unittest.mock import ANY, PropertyMock, patch
 
-from arcam.fmj import DecodeMode2CH, DecodeModeMCH, SourceCodes
+from arcam.fmj import ConnectionFailed, DecodeMode2CH, DecodeModeMCH, SourceCodes
 import pytest
 
+from homeassistant.components.homeassistant import (
+    DOMAIN as HA_DOMAIN,
+    SERVICE_UPDATE_ENTITY,
+)
 from homeassistant.components.media_player import (
     ATTR_INPUT_SOURCE,
+    ATTR_MEDIA_VOLUME_LEVEL,
     ATTR_SOUND_MODE,
     ATTR_SOUND_MODE_LIST,
     SERVICE_SELECT_SOURCE,
+    SERVICE_VOLUME_SET,
     MediaType,
 )
 from homeassistant.const import (
@@ -20,6 +26,7 @@ from homeassistant.const import (
     ATTR_NAME,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 
 from .conftest import MOCK_HOST, MOCK_UUID
 
@@ -106,14 +113,35 @@ async def test_name(player) -> None:
     assert data.attributes["friendly_name"] == "Zone 1"
 
 
-async def test_update(player, state) -> None:
+async def test_update(hass: HomeAssistant, player_setup: str, state) -> None:
     """Test update."""
-    await update(player, force_refresh=True)
+    await hass.services.async_call(
+        HA_DOMAIN,
+        SERVICE_UPDATE_ENTITY,
+        service_data={ATTR_ENTITY_ID: player_setup},
+        blocking=True,
+    )
     state.update.assert_called_with()
 
 
+async def test_update_lost(
+    hass: HomeAssistant, player_setup: str, state, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Test update, with connection loss is ignored."""
+    state.update.side_effect = ConnectionFailed()
+
+    await hass.services.async_call(
+        HA_DOMAIN,
+        SERVICE_UPDATE_ENTITY,
+        service_data={ATTR_ENTITY_ID: player_setup},
+        blocking=True,
+    )
+    state.update.assert_called_with()
+    assert "Connection lost during update" in caplog.text
+
+
 @pytest.mark.parametrize(
-    "source, value",
+    ("source", "value"),
     [("PVR", SourceCodes.PVR), ("BD", SourceCodes.BD), ("INVALID", None)],
 )
 async def test_select_source(
@@ -168,7 +196,7 @@ async def test_volume_down(player, state) -> None:
 
 
 @pytest.mark.parametrize(
-    "mode, mode_enum",
+    ("mode", "mode_enum"),
     [
         ("STEREO", DecodeMode2CH.STEREO),
         ("STEREO_DOWNMIX", DecodeModeMCH.STEREO_DOWNMIX),
@@ -183,7 +211,7 @@ async def test_sound_mode(player, state, mode, mode_enum) -> None:
 
 
 @pytest.mark.parametrize(
-    "modes, modes_enum",
+    ("modes", "modes_enum"),
     [
         (["STEREO", "DOLBY_PL"], [DecodeMode2CH.STEREO, DecodeMode2CH.DOLBY_PL]),
         (["STEREO_DOWNMIX"], [DecodeModeMCH.STEREO_DOWNMIX]),
@@ -200,9 +228,9 @@ async def test_sound_mode_list(player, state, modes, modes_enum) -> None:
 async def test_is_volume_muted(player, state) -> None:
     """Test muted."""
     state.get_mute.return_value = True
-    assert player.is_volume_muted is True  # pylint: disable=singleton-comparison
+    assert player.is_volume_muted is True
     state.get_mute.return_value = False
-    assert player.is_volume_muted is False  # pylint: disable=singleton-comparison
+    assert player.is_volume_muted is False
     state.get_mute.return_value = None
     assert player.is_volume_muted is None
 
@@ -219,15 +247,40 @@ async def test_volume_level(player, state) -> None:
     assert player.volume_level is None
 
 
-@pytest.mark.parametrize("volume, call", [(0.0, 0), (0.5, 50), (1.0, 99)])
-async def test_set_volume_level(player, state, volume, call) -> None:
+@pytest.mark.parametrize(("volume", "call"), [(0.0, 0), (0.5, 50), (1.0, 99)])
+async def test_set_volume_level(
+    hass: HomeAssistant, player_setup: str, state, volume, call
+) -> None:
     """Test setting volume."""
-    await player.async_set_volume_level(volume)
+
+    await hass.services.async_call(
+        "media_player",
+        SERVICE_VOLUME_SET,
+        service_data={ATTR_ENTITY_ID: player_setup, ATTR_MEDIA_VOLUME_LEVEL: volume},
+        blocking=True,
+    )
+
     state.set_volume.assert_called_with(call)
 
 
+async def test_set_volume_level_lost(
+    hass: HomeAssistant, player_setup: str, state
+) -> None:
+    """Test setting volume, with a lost connection."""
+
+    state.set_volume.side_effect = ConnectionFailed()
+
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            "media_player",
+            SERVICE_VOLUME_SET,
+            service_data={ATTR_ENTITY_ID: player_setup, ATTR_MEDIA_VOLUME_LEVEL: 0.0},
+            blocking=True,
+        )
+
+
 @pytest.mark.parametrize(
-    "source, media_content_type",
+    ("source", "media_content_type"),
     [
         (SourceCodes.DAB, MediaType.MUSIC),
         (SourceCodes.FM, MediaType.MUSIC),
@@ -242,7 +295,7 @@ async def test_media_content_type(player, state, source, media_content_type) -> 
 
 
 @pytest.mark.parametrize(
-    "source, dab, rds, channel",
+    ("source", "dab", "rds", "channel"),
     [
         (SourceCodes.DAB, "dab", "rds", "dab"),
         (SourceCodes.DAB, None, None, None),
@@ -260,7 +313,7 @@ async def test_media_channel(player, state, source, dab, rds, channel) -> None:
 
 
 @pytest.mark.parametrize(
-    "source, dls, artist",
+    ("source", "dls", "artist"),
     [
         (SourceCodes.DAB, "dls", "dls"),
         (SourceCodes.FM, "dls", None),
@@ -275,7 +328,7 @@ async def test_media_artist(player, state, source, dls, artist) -> None:
 
 
 @pytest.mark.parametrize(
-    "source, channel, title",
+    ("source", "channel", "title"),
     [
         (SourceCodes.DAB, "channel", "DAB - channel"),
         (SourceCodes.DAB, None, "DAB"),
