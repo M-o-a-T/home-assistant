@@ -3,8 +3,9 @@
 from typing import Any
 
 from roborock.api import AttributeCache, RoborockClient
+from roborock.cloud_api import RoborockMqttClient
 from roborock.command_cache import CacheableAttribute
-from roborock.containers import Status
+from roborock.containers import Consumable, Status
 from roborock.exceptions import RoborockException
 from roborock.roborock_typing import RoborockCommand
 
@@ -14,6 +15,7 @@ from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import RoborockDataUpdateCoordinator
+from .const import DOMAIN
 
 
 class RoborockEntity(Entity):
@@ -47,10 +49,18 @@ class RoborockEntity(Entity):
         try:
             response: dict = await self._api.send_command(command, params)
         except RoborockException as err:
+            if isinstance(command, RoborockCommand):
+                command_name = command.name
+            else:
+                command_name = command
             raise HomeAssistantError(
-                f"Error while calling {command.name if isinstance(command, RoborockCommand) else command} with {params}"
+                f"Error while calling {command}",
+                translation_domain=DOMAIN,
+                translation_key="command_failed",
+                translation_placeholders={
+                    "command": command_name,
+                },
             ) from err
-
         return response
 
 
@@ -82,6 +92,11 @@ class RoborockCoordinatedEntity(
         data = self.coordinator.data
         return data.status
 
+    @property
+    def cloud_api(self) -> RoborockMqttClient:
+        """Return the cloud api."""
+        return self.coordinator.cloud_api
+
     async def send(
         self,
         command: RoborockCommand | str,
@@ -91,3 +106,12 @@ class RoborockCoordinatedEntity(
         res = await super().send(command, params)
         await self.coordinator.async_refresh()
         return res
+
+    def _update_from_listener(self, value: Status | Consumable):
+        """Update the status or consumable data from a listener and then write the new entity state."""
+        if isinstance(value, Status):
+            self.coordinator.roborock_device_info.props.status = value
+        else:
+            self.coordinator.roborock_device_info.props.consumable = value
+        self.coordinator.data = self.coordinator.roborock_device_info.props
+        self.async_write_ha_state()
