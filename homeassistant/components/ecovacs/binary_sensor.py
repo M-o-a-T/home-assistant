@@ -1,22 +1,21 @@
 """Binary sensor module."""
+
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Generic
 
 from deebot_client.capabilities import CapabilityEvent
-from deebot_client.events.water_info import WaterInfoEvent
+from deebot_client.events.water_info import MopAttachedEvent
 
 from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import DOMAIN
-from .controller import EcovacsController
+from . import EcovacsConfigEntry
 from .entity import EcovacsCapabilityEntityDescription, EcovacsDescriptionEntity, EventT
 from .util import get_supported_entitites
 
@@ -33,11 +32,11 @@ class EcovacsBinarySensorEntityDescription(
 
 
 ENTITY_DESCRIPTIONS: tuple[EcovacsBinarySensorEntityDescription, ...] = (
-    EcovacsBinarySensorEntityDescription[WaterInfoEvent](
-        capability_fn=lambda caps: caps.water,
-        value_fn=lambda e: e.mop_attached,
-        key="mop_attached",
-        translation_key="mop_attached",
+    EcovacsBinarySensorEntityDescription[MopAttachedEvent](
+        capability_fn=lambda caps: caps.water.mop_attached if caps.water else None,
+        value_fn=lambda e: e.value,
+        key="water_mop_attached",
+        translation_key="water_mop_attached",
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
 )
@@ -45,13 +44,14 @@ ENTITY_DESCRIPTIONS: tuple[EcovacsBinarySensorEntityDescription, ...] = (
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    config_entry: EcovacsConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Add entities for passed config_entry in HA."""
-    controller: EcovacsController = hass.data[DOMAIN][config_entry.entry_id]
     async_add_entities(
-        get_supported_entitites(controller, EcovacsBinarySensor, ENTITY_DESCRIPTIONS)
+        get_supported_entitites(
+            config_entry.runtime_data, EcovacsBinarySensor, ENTITY_DESCRIPTIONS
+        )
     )
 
 

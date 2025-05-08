@@ -1,7 +1,8 @@
 """Device tracker platform that adds support for OwnTracks over MQTT."""
+
 from homeassistant.components.device_tracker import (
     ATTR_SOURCE_TYPE,
-    DOMAIN,
+    DOMAIN as DEVICE_TRACKER_DOMAIN,
     SourceType,
     TrackerEntity,
 )
@@ -15,43 +16,44 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from . import DOMAIN as OT_DOMAIN
+from . import DOMAIN
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up OwnTracks based off an entry."""
     # Restore previously loaded devices
     dev_reg = dr.async_get(hass)
     dev_ids = {
         identifier[1]
-        for device in dev_reg.devices.values()
+        for device in dev_reg.devices.get_devices_for_config_entry_id(entry.entry_id)
         for identifier in device.identifiers
-        if identifier[0] == OT_DOMAIN
     }
 
     entities = []
     for dev_id in dev_ids:
-        entity = hass.data[OT_DOMAIN]["devices"][dev_id] = OwnTracksEntity(dev_id)
+        entity = hass.data[DOMAIN]["devices"][dev_id] = OwnTracksEntity(dev_id)
         entities.append(entity)
 
     @callback
     def _receive_data(dev_id, **data):
         """Receive set location."""
-        entity = hass.data[OT_DOMAIN]["devices"].get(dev_id)
+        entity = hass.data[DOMAIN]["devices"].get(dev_id)
 
         if entity is not None:
             entity.update_data(data)
             return
 
-        entity = hass.data[OT_DOMAIN]["devices"][dev_id] = OwnTracksEntity(dev_id, data)
+        entity = hass.data[DOMAIN]["devices"][dev_id] = OwnTracksEntity(dev_id, data)
         async_add_entities([entity])
 
-    hass.data[OT_DOMAIN]["context"].set_async_see(_receive_data)
+    hass.data[DOMAIN]["context"].set_async_see(_receive_data)
 
     async_add_entities(entities)
 
@@ -66,7 +68,7 @@ class OwnTracksEntity(TrackerEntity, RestoreEntity):
         """Set up OwnTracks entity."""
         self._dev_id = dev_id
         self._data = data or {}
-        self.entity_id = f"{DOMAIN}.{dev_id}"
+        self.entity_id = f"{DEVICE_TRACKER_DOMAIN}.{dev_id}"
 
     @property
     def unique_id(self):
@@ -119,7 +121,7 @@ class OwnTracksEntity(TrackerEntity, RestoreEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return the device info."""
-        device_info = DeviceInfo(identifiers={(OT_DOMAIN, self._dev_id)})
+        device_info = DeviceInfo(identifiers={(DOMAIN, self._dev_id)})
         if "host_name" in self._data:
             device_info["name"] = self._data["host_name"]
         return device_info

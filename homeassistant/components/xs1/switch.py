@@ -1,4 +1,5 @@
 """Support for XS1 switches."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -10,7 +11,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
-from . import ACTUATORS, DOMAIN as COMPONENT_DOMAIN, XS1DeviceEntity
+from . import ACTUATORS, DOMAIN
+from .entity import XS1DeviceEntity
 
 
 def setup_platform(
@@ -20,16 +22,14 @@ def setup_platform(
     discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
     """Set up the XS1 switch platform."""
-    actuators = hass.data[COMPONENT_DOMAIN][ACTUATORS]
+    actuators = hass.data[DOMAIN][ACTUATORS]
 
-    switch_entities = []
-    for actuator in actuators:
-        if (actuator.type() == ActuatorType.SWITCH) or (
-            actuator.type() == ActuatorType.DIMMER
-        ):
-            switch_entities.append(XS1SwitchEntity(actuator))
-
-    add_entities(switch_entities)
+    add_entities(
+        XS1SwitchEntity(actuator)
+        for actuator in actuators
+        if (actuator.type() == ActuatorType.SWITCH)
+        or (actuator.type() == ActuatorType.DIMMER)
+    )
 
 
 class XS1SwitchEntity(XS1DeviceEntity, SwitchEntity):

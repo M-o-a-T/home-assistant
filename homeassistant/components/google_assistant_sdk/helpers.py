@@ -1,4 +1,5 @@
 """Helper classes for Google Assistant SDK integration."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -27,13 +28,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.config_entry_oauth2_flow import OAuth2Session
 from homeassistant.helpers.event import async_call_later
 
-from .const import (
-    CONF_LANGUAGE_CODE,
-    DATA_MEM_STORAGE,
-    DATA_SESSION,
-    DOMAIN,
-    SUPPORTED_LANGUAGE_CODES,
-)
+from .const import CONF_LANGUAGE_CODE, DOMAIN, SUPPORTED_LANGUAGE_CODES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -48,6 +43,16 @@ DEFAULT_LANGUAGE_CODES = {
     "pt": "pt-BR",
 }
 
+type GoogleAssistantSDKConfigEntry = ConfigEntry[GoogleAssistantSDKRuntimeData]
+
+
+@dataclass
+class GoogleAssistantSDKRuntimeData:
+    """Runtime data for Google Assistant SDK."""
+
+    session: OAuth2Session
+    mem_storage: InMemoryStorage
+
 
 @dataclass
 class CommandResponse:
@@ -61,33 +66,32 @@ async def async_send_text_commands(
 ) -> list[CommandResponse]:
     """Send text commands to Google Assistant Service."""
     # There can only be 1 entry (config_flow has single_instance_allowed)
-    entry: ConfigEntry = hass.config_entries.async_entries(DOMAIN)[0]
+    entry: GoogleAssistantSDKConfigEntry = hass.config_entries.async_entries(DOMAIN)[0]
 
-    session: OAuth2Session = hass.data[DOMAIN][entry.entry_id][DATA_SESSION]
+    session = entry.runtime_data.session
     try:
         await session.async_ensure_token_valid()
     except aiohttp.ClientResponseError as err:
         if 400 <= err.status < 500:
             entry.async_start_reauth(hass)
-        raise err
+        raise
 
-    credentials = Credentials(session.token[CONF_ACCESS_TOKEN])
+    credentials = Credentials(session.token[CONF_ACCESS_TOKEN])  # type: ignore[no-untyped-call]
     language_code = entry.options.get(CONF_LANGUAGE_CODE, default_language_code(hass))
     with TextAssistant(
         credentials, language_code, audio_out=bool(media_players)
     ) as assistant:
         command_response_list = []
         for command in commands:
-            resp = assistant.assist(command)
+            resp = await hass.async_add_executor_job(assistant.assist, command)
             text_response = resp[0]
             _LOGGER.debug("command: %s\nresponse: %s", command, text_response)
             audio_response = resp[2]
             if media_players and audio_response:
-                mem_storage: InMemoryStorage = hass.data[DOMAIN][entry.entry_id][
-                    DATA_MEM_STORAGE
-                ]
                 audio_url = GoogleAssistantSDKAudioView.url.format(
-                    filename=mem_storage.store_and_get_identifier(audio_response)
+                    filename=entry.runtime_data.mem_storage.store_and_get_identifier(
+                        audio_response
+                    )
                 )
                 await hass.services.async_call(
                     DOMAIN_MP,
@@ -110,6 +114,33 @@ def default_language_code(hass: HomeAssistant) -> str:
     if language_code in SUPPORTED_LANGUAGE_CODES:
         return language_code
     return DEFAULT_LANGUAGE_CODES.get(hass.config.language, "en-US")
+
+
+def best_matching_language_code(
+    hass: HomeAssistant, assist_language: str, agent_language: str | None = None
+) -> str:
+    """Get the best matching language, based on the preferred assist language and the configured agent language."""
+
+    # Use the assist language if supported
+    if assist_language in SUPPORTED_LANGUAGE_CODES:
+        return assist_language
+    language = assist_language.split("-")[0]
+
+    # Use the agent language if assist and agent start with the same language part
+    if agent_language is not None and agent_language.startswith(language):
+        return best_matching_language_code(hass, agent_language)
+
+    # If assist and agent are not matching, try to find the default language
+    default_language = DEFAULT_LANGUAGE_CODES.get(language)
+    if default_language is not None:
+        return default_language
+
+    # If no default agent is available, use the agent language
+    if agent_language is not None:
+        return best_matching_language_code(hass, agent_language)
+
+    # Fallback to the system default language
+    return default_language_code(hass)
 
 
 class InMemoryStorage:

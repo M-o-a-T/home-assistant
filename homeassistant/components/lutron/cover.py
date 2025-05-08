@@ -1,4 +1,5 @@
 """Support for Lutron shades."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -14,7 +15,7 @@ from homeassistant.components.cover import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import DOMAIN, LutronData
 from .entity import LutronDevice
@@ -25,7 +26,7 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Lutron cover platform.
 
@@ -69,7 +70,7 @@ class LutronCover(LutronDevice, CoverEntity):
 
     def _request_state(self) -> None:
         """Request the state from the device."""
-        self._lutron_device.level  # pylint: disable=pointless-statement
+        _ = self._lutron_device.level
 
     def _update_attrs(self) -> None:
         """Update the state attributes."""

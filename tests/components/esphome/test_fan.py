@@ -1,6 +1,5 @@
 """Test ESPHome fans."""
 
-
 from unittest.mock import call
 
 from aioesphomeapi import (
@@ -31,9 +30,13 @@ from homeassistant.components.fan import (
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
 
+from .conftest import MockGenericDeviceEntryType
+
 
 async def test_fan_entity_with_all_features_old_api(
-    hass: HomeAssistant, mock_client: APIClient, mock_generic_device_entry
+    hass: HomeAssistant,
+    mock_client: APIClient,
+    mock_generic_device_entry: MockGenericDeviceEntryType,
 ) -> None:
     """Test a generic fan entity that uses the old api and has all features."""
     entity_info = [
@@ -133,7 +136,9 @@ async def test_fan_entity_with_all_features_old_api(
 
 
 async def test_fan_entity_with_all_features_new_api(
-    hass: HomeAssistant, mock_client: APIClient, mock_generic_device_entry
+    hass: HomeAssistant,
+    mock_client: APIClient,
+    mock_generic_device_entry: MockGenericDeviceEntryType,
 ) -> None:
     """Test a generic fan entity that uses the new api and has all features."""
     mock_client.api_version = APIVersion(1, 4)
@@ -285,7 +290,9 @@ async def test_fan_entity_with_all_features_new_api(
 
 
 async def test_fan_entity_with_no_features_new_api(
-    hass: HomeAssistant, mock_client: APIClient, mock_generic_device_entry
+    hass: HomeAssistant,
+    mock_client: APIClient,
+    mock_generic_device_entry: MockGenericDeviceEntryType,
 ) -> None:
     """Test a generic fan entity that uses the new api and has no features."""
     mock_client.api_version = APIVersion(1, 4)

@@ -1,4 +1,5 @@
 """Meteo-France component constants."""
+
 from __future__ import annotations
 
 from homeassistant.components.weather import (
@@ -39,7 +40,7 @@ ATTR_NEXT_RAIN_DT_REF = "forecast_time_ref"
 
 
 CONDITION_CLASSES: dict[str, list[str]] = {
-    ATTR_CONDITION_CLEAR_NIGHT: ["Nuit Claire", "Nuit claire"],
+    ATTR_CONDITION_CLEAR_NIGHT: ["Nuit Claire", "Nuit claire", "Ciel clair"],
     ATTR_CONDITION_CLOUDY: ["Très nuageux", "Couvert"],
     ATTR_CONDITION_FOG: [
         "Brume ou bancs de brouillard",
@@ -47,9 +48,10 @@ CONDITION_CLASSES: dict[str, list[str]] = {
         "Brouillard",
         "Brouillard givrant",
         "Bancs de Brouillard",
+        "Brouillard dense",
     ],
     ATTR_CONDITION_HAIL: ["Risque de grêle", "Risque de grèle"],
-    ATTR_CONDITION_LIGHTNING: ["Risque d'orages", "Orages"],
+    ATTR_CONDITION_LIGHTNING: ["Risque d'orages", "Orages", "Orage avec grêle"],
     ATTR_CONDITION_LIGHTNING_RAINY: [
         "Pluie orageuses",
         "Pluies orageuses",
@@ -61,6 +63,7 @@ CONDITION_CLASSES: dict[str, list[str]] = {
         "Éclaircies",
         "Eclaircies",
         "Peu nuageux",
+        "Variable",
     ],
     ATTR_CONDITION_POURING: ["Pluie forte"],
     ATTR_CONDITION_RAINY: [
@@ -73,6 +76,7 @@ CONDITION_CLASSES: dict[str, list[str]] = {
         "Pluie modérée",
         "Pluie / Averses",
         "Averses",
+        "Averses faibles",
         "Pluie",
     ],
     ATTR_CONDITION_SNOWY: [
@@ -80,6 +84,8 @@ CONDITION_CLASSES: dict[str, list[str]] = {
         "Neige",
         "Averses de neige",
         "Neige forte",
+        "Neige faible",
+        "Averses de neige faible",
         "Quelques flocons",
     ],
     ATTR_CONDITION_SNOWY_RAINY: ["Pluie et neige", "Pluie verglaçante"],

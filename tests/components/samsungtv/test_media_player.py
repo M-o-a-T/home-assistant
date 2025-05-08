@@ -1,6 +1,7 @@
 """Tests for samsungtv component."""
+
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import timedelta
 import logging
 from unittest.mock import DEFAULT as DEFAULT_MOCK, AsyncMock, Mock, call, patch
 
@@ -30,7 +31,7 @@ from homeassistant.components.media_player import (
     ATTR_MEDIA_CONTENT_TYPE,
     ATTR_MEDIA_VOLUME_LEVEL,
     ATTR_MEDIA_VOLUME_MUTED,
-    DOMAIN,
+    DOMAIN as MP_DOMAIN,
     SERVICE_PLAY_MEDIA,
     SERVICE_SELECT_SOURCE,
     MediaPlayerDeviceClass,
@@ -38,10 +39,10 @@ from homeassistant.components.media_player import (
 )
 from homeassistant.components.samsungtv.const import (
     CONF_SSDP_RENDERING_CONTROL_LOCATION,
-    DOMAIN as SAMSUNGTV_DOMAIN,
+    DOMAIN,
     ENCRYPTED_WEBSOCKET_PORT,
+    ENTRY_RELOAD_COOLDOWN,
     METHOD_ENCRYPTED_WEBSOCKET,
-    METHOD_LEGACY,
     METHOD_WEBSOCKET,
     TIMEOUT_WEBSOCKET,
 )
@@ -76,26 +77,24 @@ from homeassistant.const import (
     STATE_UNAVAILABLE,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
-import homeassistant.util.dt as dt_util
+from homeassistant.exceptions import HomeAssistantError, ServiceNotSupported
+from homeassistant.setup import async_setup_component
 
-from . import async_wait_config_entry_reload, setup_samsungtv_entry
+from . import setup_samsungtv_entry
 from .const import (
+    MOCK_CONFIG,
+    MOCK_ENTRY_WS_WITH_MAC,
     MOCK_ENTRYDATA_ENCRYPTED_WS,
-    SAMPLE_DEVICE_INFO_FRAME,
     SAMPLE_DEVICE_INFO_WIFI,
-    SAMPLE_EVENT_ED_INSTALLED_APP,
 )
 
-from tests.common import MockConfigEntry, async_fire_time_changed
+from tests.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+    load_json_object_fixture,
+)
 
-ENTITY_ID = f"{DOMAIN}.fake"
-MOCK_CONFIG = {
-    CONF_HOST: "fake_host",
-    CONF_NAME: "fake",
-    CONF_PORT: 55000,
-    CONF_METHOD: METHOD_LEGACY,
-}
+ENTITY_ID = f"{MP_DOMAIN}.mock_title"
 MOCK_CONFIGWS = {
     CONF_HOST: "fake_host",
     CONF_NAME: "fake",
@@ -119,17 +118,6 @@ MOCK_ENTRY_WS = {
     CONF_PORT: 8001,
     CONF_TOKEN: "123456789",
     CONF_SSDP_RENDERING_CONTROL_LOCATION: "https://any",
-}
-
-
-MOCK_ENTRY_WS_WITH_MAC = {
-    CONF_IP_ADDRESS: "test",
-    CONF_HOST: "fake_host",
-    CONF_METHOD: "websocket",
-    CONF_MAC: "aa:bb:cc:dd:ee:ff",
-    CONF_NAME: "fake",
-    CONF_PORT: 8002,
-    CONF_TOKEN: "123456789",
 }
 
 
@@ -160,26 +148,23 @@ async def test_setup_websocket(hass: HomeAssistant) -> None:
 
         await hass.async_block_till_done()
 
-        config_entries = hass.config_entries.async_entries(SAMSUNGTV_DOMAIN)
+        config_entries = hass.config_entries.async_entries(DOMAIN)
         assert len(config_entries) == 1
-        assert config_entries[0].data[CONF_MAC] == "aa:bb:ww:ii:ff:ii"
+        assert config_entries[0].data[CONF_MAC] == "aa:bb:aa:aa:aa:aa"
 
 
 @pytest.mark.usefixtures("rest_api")
 async def test_setup_websocket_2(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, mock_now: datetime
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:
     """Test setup of platform from config entry."""
-    entity_id = f"{DOMAIN}.fake"
-
     entry = MockConfigEntry(
-        domain=SAMSUNGTV_DOMAIN,
+        domain=DOMAIN,
         data=MOCK_ENTRY_WS,
-        unique_id=entity_id,
     )
     entry.add_to_hass(hass)
 
-    config_entries = hass.config_entries.async_entries(SAMSUNGTV_DOMAIN)
+    config_entries = hass.config_entries.async_entries(DOMAIN)
     assert len(config_entries) == 1
     assert entry is config_entries[0]
 
@@ -194,21 +179,20 @@ async def test_setup_websocket_2(
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
-        assert config_entries[0].data[CONF_MAC] == "aa:bb:ww:ii:ff:ii"
+        assert config_entries[0].data[CONF_MAC] == "aa:bb:aa:aa:aa:aa"
 
-        next_update = mock_now + timedelta(minutes=5)
-        freezer.move_to(next_update)
-        async_fire_time_changed(hass, next_update)
-        await hass.async_block_till_done()
+        freezer.tick(timedelta(minutes=5))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done(wait_background_tasks=True)
 
-    state = hass.states.get(entity_id)
+    state = hass.states.get(ENTITY_ID)
     assert state
     remote_class.assert_called_once_with(**MOCK_CALLS_WS)
 
 
 @pytest.mark.usefixtures("rest_api")
 async def test_setup_encrypted_websocket(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, mock_now: datetime
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:
     """Test setup of platform from config entry."""
     with patch(
@@ -221,10 +205,9 @@ async def test_setup_encrypted_websocket(
 
         await setup_samsungtv_entry(hass, MOCK_ENTRYDATA_ENCRYPTED_WS)
 
-        next_update = mock_now + timedelta(minutes=5)
-        freezer.move_to(next_update)
-        async_fire_time_changed(hass, next_update)
-        await hass.async_block_till_done()
+        freezer.tick(timedelta(minutes=5))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done(wait_background_tasks=True)
 
     state = hass.states.get(ENTITY_ID)
     assert state
@@ -232,25 +215,20 @@ async def test_setup_encrypted_websocket(
 
 
 @pytest.mark.usefixtures("remote")
-async def test_update_on(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, mock_now: datetime
-) -> None:
+async def test_update_on(hass: HomeAssistant, freezer: FrozenDateTimeFactory) -> None:
     """Testing update tv on."""
     await setup_samsungtv_entry(hass, MOCK_CONFIG)
 
-    next_update = mock_now + timedelta(minutes=5)
-    freezer.move_to(next_update)
-    async_fire_time_changed(hass, next_update)
-    await hass.async_block_till_done()
+    freezer.tick(timedelta(minutes=5))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     state = hass.states.get(ENTITY_ID)
     assert state.state == STATE_ON
 
 
 @pytest.mark.usefixtures("remote")
-async def test_update_off(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, mock_now: datetime
-) -> None:
+async def test_update_off(hass: HomeAssistant, freezer: FrozenDateTimeFactory) -> None:
     """Testing update tv off."""
     await setup_samsungtv_entry(hass, MOCK_CONFIG)
 
@@ -258,21 +236,16 @@ async def test_update_off(
         "homeassistant.components.samsungtv.bridge.Remote",
         side_effect=[OSError("Boom"), DEFAULT_MOCK],
     ):
-        next_update = mock_now + timedelta(minutes=5)
-        freezer.move_to(next_update)
-        async_fire_time_changed(hass, next_update)
-        await hass.async_block_till_done()
+        freezer.tick(timedelta(minutes=5))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done(wait_background_tasks=True)
 
         state = hass.states.get(ENTITY_ID)
         assert state.state == STATE_UNAVAILABLE
 
 
 async def test_update_off_ws_no_power_state(
-    hass: HomeAssistant,
-    freezer: FrozenDateTimeFactory,
-    remotews: Mock,
-    rest_api: Mock,
-    mock_now: datetime,
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, remotews: Mock, rest_api: Mock
 ) -> None:
     """Testing update tv off."""
     await setup_samsungtv_entry(hass, MOCK_CONFIGWS)
@@ -286,10 +259,9 @@ async def test_update_off_ws_no_power_state(
     remotews.start_listening = Mock(side_effect=WebSocketException("Boom"))
     remotews.is_alive.return_value = False
 
-    next_update = mock_now + timedelta(minutes=5)
-    freezer.move_to(next_update)
-    async_fire_time_changed(hass, next_update)
-    await hass.async_block_till_done()
+    freezer.tick(timedelta(minutes=5))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     state = hass.states.get(ENTITY_ID)
     assert state.state == STATE_OFF
@@ -298,18 +270,17 @@ async def test_update_off_ws_no_power_state(
 
 @pytest.mark.usefixtures("remotews")
 async def test_update_off_ws_with_power_state(
-    hass: HomeAssistant,
-    freezer: FrozenDateTimeFactory,
-    remotews: Mock,
-    rest_api: Mock,
-    mock_now: datetime,
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, remotews: Mock, rest_api: Mock
 ) -> None:
     """Testing update tv off."""
-    with patch.object(
-        rest_api, "rest_device_info", side_effect=HttpApiError
-    ) as mock_device_info, patch.object(
-        remotews, "start_listening", side_effect=WebSocketException("Boom")
-    ) as mock_start_listening:
+    with (
+        patch.object(
+            rest_api, "rest_device_info", side_effect=HttpApiError
+        ) as mock_device_info,
+        patch.object(
+            remotews, "start_listening", side_effect=WebSocketException("Boom")
+        ) as mock_start_listening,
+    ):
         await setup_samsungtv_entry(hass, MOCK_CONFIGWS)
 
         mock_device_info.assert_called_once()
@@ -322,10 +293,10 @@ async def test_update_off_ws_with_power_state(
     device_info = deepcopy(SAMPLE_DEVICE_INFO_WIFI)
     device_info["device"]["PowerState"] = "on"
     rest_api.rest_device_info.return_value = device_info
-    next_update = mock_now + timedelta(minutes=1)
-    freezer.move_to(next_update)
-    async_fire_time_changed(hass, next_update)
-    await hass.async_block_till_done()
+
+    freezer.tick(timedelta(minutes=1))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     remotews.start_listening.assert_called_once()
     rest_api.rest_device_info.assert_called_once()
@@ -338,10 +309,10 @@ async def test_update_off_ws_with_power_state(
 
     # Second update uses device_info(ON)
     rest_api.rest_device_info.reset_mock()
-    next_update = mock_now + timedelta(minutes=2)
-    freezer.move_to(next_update)
-    async_fire_time_changed(hass, next_update)
-    await hass.async_block_till_done()
+
+    freezer.tick(timedelta(minutes=1))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     rest_api.rest_device_info.assert_called_once()
 
@@ -351,10 +322,10 @@ async def test_update_off_ws_with_power_state(
     # Third update uses device_info (OFF)
     rest_api.rest_device_info.reset_mock()
     device_info["device"]["PowerState"] = "off"
-    next_update = mock_now + timedelta(minutes=3)
-    freezer.move_to(next_update)
-    async_fire_time_changed(hass, next_update)
-    await hass.async_block_till_done()
+
+    freezer.tick(timedelta(minutes=1))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     rest_api.rest_device_info.assert_called_once()
 
@@ -369,7 +340,6 @@ async def test_update_off_encryptedws(
     freezer: FrozenDateTimeFactory,
     remoteencws: Mock,
     rest_api: Mock,
-    mock_now: datetime,
 ) -> None:
     """Testing update tv off."""
     await setup_samsungtv_entry(hass, MOCK_ENTRYDATA_ENCRYPTED_WS)
@@ -382,10 +352,9 @@ async def test_update_off_encryptedws(
     remoteencws.start_listening = Mock(side_effect=WebSocketException("Boom"))
     remoteencws.is_alive.return_value = False
 
-    next_update = mock_now + timedelta(minutes=5)
-    freezer.move_to(next_update)
-    async_fire_time_changed(hass, next_update)
-    await hass.async_block_till_done()
+    freezer.tick(timedelta(minutes=5))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     state = hass.states.get(ENTITY_ID)
     assert state.state == STATE_OFF
@@ -394,7 +363,7 @@ async def test_update_off_encryptedws(
 
 @pytest.mark.usefixtures("remote")
 async def test_update_access_denied(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, mock_now: datetime
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:
     """Testing update tv access denied exception."""
     await setup_samsungtv_entry(hass, MOCK_CONFIG)
@@ -403,15 +372,13 @@ async def test_update_access_denied(
         "homeassistant.components.samsungtv.bridge.Remote",
         side_effect=exceptions.AccessDenied("Boom"),
     ):
-        next_update = mock_now + timedelta(minutes=5)
-        freezer.move_to(next_update)
-        async_fire_time_changed(hass, next_update)
-        await hass.async_block_till_done()
+        freezer.tick(timedelta(minutes=5))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done(wait_background_tasks=True)
 
-        next_update = mock_now + timedelta(minutes=10)
-        freezer.move_to(next_update)
-        async_fire_time_changed(hass, next_update)
-        await hass.async_block_till_done()
+        freezer.tick(timedelta(minutes=5))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done(wait_background_tasks=True)
 
     assert [
         flow
@@ -426,22 +393,23 @@ async def test_update_access_denied(
 async def test_update_ws_connection_failure(
     hass: HomeAssistant,
     freezer: FrozenDateTimeFactory,
-    mock_now: datetime,
     remotews: Mock,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Testing update tv connection failure exception."""
     await setup_samsungtv_entry(hass, MOCK_CONFIGWS)
 
-    with patch.object(
-        remotews,
-        "start_listening",
-        side_effect=ConnectionFailure('{"event": "ms.voiceApp.hide"}'),
-    ), patch.object(remotews, "is_alive", return_value=False):
-        next_update = mock_now + timedelta(minutes=5)
-        freezer.move_to(next_update)
-        async_fire_time_changed(hass, next_update)
-        await hass.async_block_till_done()
+    with (
+        patch.object(
+            remotews,
+            "start_listening",
+            side_effect=ConnectionFailure('{"event": "ms.voiceApp.hide"}'),
+        ),
+        patch.object(remotews, "is_alive", return_value=False),
+    ):
+        freezer.tick(timedelta(minutes=5))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done(wait_background_tasks=True)
 
     assert (
         "Unexpected ConnectionFailure trying to get remote for fake_host, please "
@@ -455,21 +423,20 @@ async def test_update_ws_connection_failure(
 
 @pytest.mark.usefixtures("rest_api")
 async def test_update_ws_connection_closed(
-    hass: HomeAssistant,
-    freezer: FrozenDateTimeFactory,
-    mock_now: datetime,
-    remotews: Mock,
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, remotews: Mock
 ) -> None:
     """Testing update tv connection failure exception."""
     await setup_samsungtv_entry(hass, MOCK_CONFIGWS)
 
-    with patch.object(
-        remotews, "start_listening", side_effect=ConnectionClosedError(None, None)
-    ), patch.object(remotews, "is_alive", return_value=False):
-        next_update = mock_now + timedelta(minutes=5)
-        freezer.move_to(next_update)
-        async_fire_time_changed(hass, next_update)
-        await hass.async_block_till_done()
+    with (
+        patch.object(
+            remotews, "start_listening", side_effect=ConnectionClosedError(None, None)
+        ),
+        patch.object(remotews, "is_alive", return_value=False),
+    ):
+        freezer.tick(timedelta(minutes=5))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done(wait_background_tasks=True)
 
     state = hass.states.get(ENTITY_ID)
     assert state.state == STATE_OFF
@@ -477,21 +444,18 @@ async def test_update_ws_connection_closed(
 
 @pytest.mark.usefixtures("rest_api")
 async def test_update_ws_unauthorized_error(
-    hass: HomeAssistant,
-    freezer: FrozenDateTimeFactory,
-    mock_now: datetime,
-    remotews: Mock,
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, remotews: Mock
 ) -> None:
     """Testing update tv unauthorized failure exception."""
     await setup_samsungtv_entry(hass, MOCK_CONFIGWS)
 
-    with patch.object(
-        remotews, "start_listening", side_effect=UnauthorizedError
-    ), patch.object(remotews, "is_alive", return_value=False):
-        next_update = mock_now + timedelta(minutes=5)
-        freezer.move_to(next_update)
-        async_fire_time_changed(hass, next_update)
-        await hass.async_block_till_done()
+    with (
+        patch.object(remotews, "start_listening", side_effect=UnauthorizedError),
+        patch.object(remotews, "is_alive", return_value=False),
+    ):
+        freezer.tick(timedelta(minutes=5))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done(wait_background_tasks=True)
 
     assert [
         flow
@@ -504,7 +468,7 @@ async def test_update_ws_unauthorized_error(
 
 @pytest.mark.usefixtures("remote")
 async def test_update_unhandled_response(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, mock_now: datetime
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:
     """Testing update tv unhandled response exception."""
     await setup_samsungtv_entry(hass, MOCK_CONFIG)
@@ -513,10 +477,9 @@ async def test_update_unhandled_response(
         "homeassistant.components.samsungtv.bridge.Remote",
         side_effect=[exceptions.UnhandledResponse("Boom"), DEFAULT_MOCK],
     ):
-        next_update = mock_now + timedelta(minutes=5)
-        freezer.move_to(next_update)
-        async_fire_time_changed(hass, next_update)
-        await hass.async_block_till_done()
+        freezer.tick(timedelta(minutes=5))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done(wait_background_tasks=True)
 
         state = hass.states.get(ENTITY_ID)
         assert state.state == STATE_ON
@@ -524,7 +487,7 @@ async def test_update_unhandled_response(
 
 @pytest.mark.usefixtures("remote")
 async def test_connection_closed_during_update_can_recover(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, mock_now: datetime
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:
     """Testing update tv connection closed exception can recover."""
     await setup_samsungtv_entry(hass, MOCK_CONFIG)
@@ -533,18 +496,16 @@ async def test_connection_closed_during_update_can_recover(
         "homeassistant.components.samsungtv.bridge.Remote",
         side_effect=[exceptions.ConnectionClosed(), DEFAULT_MOCK],
     ):
-        next_update = mock_now + timedelta(minutes=5)
-        freezer.move_to(next_update)
-        async_fire_time_changed(hass, next_update)
-        await hass.async_block_till_done()
+        freezer.tick(timedelta(minutes=5))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done(wait_background_tasks=True)
 
         state = hass.states.get(ENTITY_ID)
         assert state.state == STATE_UNAVAILABLE
 
-        next_update = mock_now + timedelta(minutes=10)
-        freezer.move_to(next_update)
-        async_fire_time_changed(hass, next_update)
-        await hass.async_block_till_done()
+        freezer.tick(timedelta(minutes=5))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done(wait_background_tasks=True)
 
         state = hass.states.get(ENTITY_ID)
         assert state.state == STATE_ON
@@ -554,14 +515,12 @@ async def test_send_key(hass: HomeAssistant, remote: Mock) -> None:
     """Test for send key."""
     await setup_samsungtv_entry(hass, MOCK_CONFIG)
     await hass.services.async_call(
-        DOMAIN, SERVICE_VOLUME_UP, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_VOLUME_UP, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
     state = hass.states.get(ENTITY_ID)
-    # key and update called
+    # key called
     assert remote.control.call_count == 1
     assert remote.control.call_args_list == [call("KEY_VOLUP")]
-    assert remote.close.call_count == 1
-    assert remote.close.call_args_list == [call()]
     assert state.state == STATE_ON
 
 
@@ -570,7 +529,7 @@ async def test_send_key_broken_pipe(hass: HomeAssistant, remote: Mock) -> None:
     await setup_samsungtv_entry(hass, MOCK_CONFIG)
     remote.control = Mock(side_effect=BrokenPipeError("Boom"))
     await hass.services.async_call(
-        DOMAIN, SERVICE_VOLUME_UP, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_VOLUME_UP, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
     state = hass.states.get(ENTITY_ID)
     assert state.state == STATE_ON
@@ -585,17 +544,15 @@ async def test_send_key_connection_closed_retry_succeed(
         side_effect=[exceptions.ConnectionClosed("Boom"), DEFAULT_MOCK, DEFAULT_MOCK]
     )
     await hass.services.async_call(
-        DOMAIN, SERVICE_VOLUME_UP, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_VOLUME_UP, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
     state = hass.states.get(ENTITY_ID)
-    # key because of retry two times and update called
+    # key because of retry two times
     assert remote.control.call_count == 2
     assert remote.control.call_args_list == [
         call("KEY_VOLUP"),
         call("KEY_VOLUP"),
     ]
-    assert remote.close.call_count == 1
-    assert remote.close.call_args_list == [call()]
     assert state.state == STATE_ON
 
 
@@ -603,9 +560,11 @@ async def test_send_key_unhandled_response(hass: HomeAssistant, remote: Mock) ->
     """Testing unhandled response exception."""
     await setup_samsungtv_entry(hass, MOCK_CONFIG)
     remote.control = Mock(side_effect=exceptions.UnhandledResponse("Boom"))
-    await hass.services.async_call(
-        DOMAIN, SERVICE_VOLUME_UP, {ATTR_ENTITY_ID: ENTITY_ID}, True
-    )
+    with pytest.raises(HomeAssistantError) as err:
+        await hass.services.async_call(
+            MP_DOMAIN, SERVICE_VOLUME_UP, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        )
+    assert err.value.translation_key == "error_sending_command"
     state = hass.states.get(ENTITY_ID)
     assert state.state == STATE_ON
 
@@ -616,7 +575,7 @@ async def test_send_key_websocketexception(hass: HomeAssistant, remotews: Mock) 
     await setup_samsungtv_entry(hass, MOCK_CONFIGWS)
     remotews.send_commands = Mock(side_effect=WebSocketException("Boom"))
     await hass.services.async_call(
-        DOMAIN, SERVICE_VOLUME_UP, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_VOLUME_UP, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
     state = hass.states.get(ENTITY_ID)
     assert state.state == STATE_ON
@@ -630,7 +589,7 @@ async def test_send_key_websocketexception_encrypted(
     await setup_samsungtv_entry(hass, MOCK_ENTRYDATA_ENCRYPTED_WS)
     remoteencws.send_commands = Mock(side_effect=WebSocketException("Boom"))
     await hass.services.async_call(
-        DOMAIN, SERVICE_VOLUME_UP, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_VOLUME_UP, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
     state = hass.states.get(ENTITY_ID)
     assert state.state == STATE_ON
@@ -642,7 +601,7 @@ async def test_send_key_os_error_ws(hass: HomeAssistant, remotews: Mock) -> None
     await setup_samsungtv_entry(hass, MOCK_CONFIGWS)
     remotews.send_commands = Mock(side_effect=OSError("Boom"))
     await hass.services.async_call(
-        DOMAIN, SERVICE_VOLUME_UP, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_VOLUME_UP, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
     state = hass.states.get(ENTITY_ID)
     assert state.state == STATE_ON
@@ -656,7 +615,7 @@ async def test_send_key_os_error_ws_encrypted(
     await setup_samsungtv_entry(hass, MOCK_ENTRYDATA_ENCRYPTED_WS)
     remoteencws.send_commands = Mock(side_effect=OSError("Boom"))
     await hass.services.async_call(
-        DOMAIN, SERVICE_VOLUME_UP, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_VOLUME_UP, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
     state = hass.states.get(ENTITY_ID)
     assert state.state == STATE_ON
@@ -667,7 +626,7 @@ async def test_send_key_os_error(hass: HomeAssistant, remote: Mock) -> None:
     await setup_samsungtv_entry(hass, MOCK_CONFIG)
     remote.control = Mock(side_effect=OSError("Boom"))
     await hass.services.async_call(
-        DOMAIN, SERVICE_VOLUME_UP, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_VOLUME_UP, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
     state = hass.states.get(ENTITY_ID)
     assert state.state == STATE_ON
@@ -678,7 +637,7 @@ async def test_name(hass: HomeAssistant) -> None:
     """Test for name property."""
     await setup_samsungtv_entry(hass, MOCK_CONFIG)
     state = hass.states.get(ENTITY_ID)
-    assert state.attributes[ATTR_FRIENDLY_NAME] == "fake"
+    assert state.attributes[ATTR_FRIENDLY_NAME] == "Mock Title"
 
 
 @pytest.mark.usefixtures("remote")
@@ -686,25 +645,24 @@ async def test_state(hass: HomeAssistant, freezer: FrozenDateTimeFactory) -> Non
     """Test for state property."""
     await setup_samsungtv_entry(hass, MOCK_CONFIG)
     await hass.services.async_call(
-        DOMAIN, SERVICE_VOLUME_UP, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_VOLUME_UP, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
     state = hass.states.get(ENTITY_ID)
     assert state.state == STATE_ON
     await hass.services.async_call(
-        DOMAIN, SERVICE_TURN_OFF, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_TURN_OFF, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
     state = hass.states.get(ENTITY_ID)
     # Should be STATE_UNAVAILABLE after the timer expires
     assert state.state == STATE_OFF
 
-    next_update = dt_util.utcnow() + timedelta(seconds=20)
     with patch(
         "homeassistant.components.samsungtv.bridge.Remote",
         side_effect=OSError,
     ):
-        freezer.move_to(next_update)
-        async_fire_time_changed(hass, next_update)
-        await hass.async_block_till_done()
+        freezer.tick(timedelta(seconds=20))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done(wait_background_tasks=True)
 
     state = hass.states.get(ENTITY_ID)
     # Should be STATE_UNAVAILABLE since there is no way to turn it back on
@@ -732,7 +690,9 @@ async def test_turn_off_websocket(
     hass: HomeAssistant, remotews: Mock, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Test for turn_off."""
-    remotews.app_list_data = SAMPLE_EVENT_ED_INSTALLED_APP
+    remotews.app_list_data = load_json_object_fixture(
+        "ws_installed_app_event.json", DOMAIN
+    )
     with patch(
         "homeassistant.components.samsungtv.bridge.Remote",
         side_effect=[OSError("Boom"), DEFAULT_MOCK],
@@ -742,7 +702,7 @@ async def test_turn_off_websocket(
     remotews.send_commands.reset_mock()
 
     await hass.services.async_call(
-        DOMAIN, SERVICE_TURN_OFF, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_TURN_OFF, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
     # key called
     assert remotews.send_commands.call_count == 1
@@ -754,11 +714,11 @@ async def test_turn_off_websocket(
     # commands not sent : power off in progress
     remotews.send_commands.reset_mock()
     await hass.services.async_call(
-        DOMAIN, SERVICE_VOLUME_UP, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_VOLUME_UP, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
     assert "TV is powering off, not sending keys: ['KEY_VOLUP']" in caplog.text
     await hass.services.async_call(
-        DOMAIN,
+        MP_DOMAIN,
         SERVICE_SELECT_SOURCE,
         {ATTR_ENTITY_ID: ENTITY_ID, ATTR_INPUT_SOURCE: "Deezer"},
         True,
@@ -771,7 +731,9 @@ async def test_turn_off_websocket_frame(
     hass: HomeAssistant, remotews: Mock, rest_api: Mock
 ) -> None:
     """Test for turn_off."""
-    rest_api.rest_device_info.return_value = SAMPLE_DEVICE_INFO_FRAME
+    rest_api.rest_device_info.return_value = load_json_object_fixture(
+        "device_info_UE43LS003.json", DOMAIN
+    )
     with patch(
         "homeassistant.components.samsungtv.bridge.Remote",
         side_effect=[OSError("Boom"), DEFAULT_MOCK],
@@ -781,7 +743,7 @@ async def test_turn_off_websocket_frame(
     remotews.send_commands.reset_mock()
 
     await hass.services.async_call(
-        DOMAIN, SERVICE_TURN_OFF, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_TURN_OFF, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
     # key called
     assert remotews.send_commands.call_count == 1
@@ -809,7 +771,7 @@ async def test_turn_off_encrypted_websocket(
 
     caplog.clear()
     await hass.services.async_call(
-        DOMAIN, SERVICE_TURN_OFF, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_TURN_OFF, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
     # key called
     assert remoteencws.send_commands.call_count == 1
@@ -824,7 +786,7 @@ async def test_turn_off_encrypted_websocket(
     # commands not sent : power off in progress
     remoteencws.send_commands.reset_mock()
     await hass.services.async_call(
-        DOMAIN, SERVICE_VOLUME_UP, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_VOLUME_UP, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
     assert "TV is powering off, not sending keys: ['KEY_VOLUP']" in caplog.text
     remoteencws.send_commands.assert_not_called()
@@ -850,7 +812,7 @@ async def test_turn_off_encrypted_websocket_key_type(
 
     caplog.clear()
     await hass.services.async_call(
-        DOMAIN, SERVICE_TURN_OFF, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_TURN_OFF, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
     # key called
     assert remoteencws.send_commands.call_count == 1
@@ -865,7 +827,7 @@ async def test_turn_off_legacy(hass: HomeAssistant, remote: Mock) -> None:
     """Test for turn_off."""
     await setup_samsungtv_entry(hass, MOCK_CONFIG)
     await hass.services.async_call(
-        DOMAIN, SERVICE_TURN_OFF, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_TURN_OFF, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
     # key called
     assert remote.control.call_count == 1
@@ -880,7 +842,7 @@ async def test_turn_off_os_error(
     await setup_samsungtv_entry(hass, MOCK_CONFIG)
     remote.close = Mock(side_effect=OSError("BOOM"))
     await hass.services.async_call(
-        DOMAIN, SERVICE_TURN_OFF, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_TURN_OFF, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
     assert "Could not establish connection" in caplog.text
 
@@ -894,7 +856,7 @@ async def test_turn_off_ws_os_error(
     await setup_samsungtv_entry(hass, MOCK_CONFIGWS)
     remotews.close = Mock(side_effect=OSError("BOOM"))
     await hass.services.async_call(
-        DOMAIN, SERVICE_TURN_OFF, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_TURN_OFF, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
     assert "Error closing connection" in caplog.text
 
@@ -908,7 +870,7 @@ async def test_turn_off_encryptedws_os_error(
     await setup_samsungtv_entry(hass, MOCK_ENTRYDATA_ENCRYPTED_WS)
     remoteencws.close = Mock(side_effect=OSError("BOOM"))
     await hass.services.async_call(
-        DOMAIN, SERVICE_TURN_OFF, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_TURN_OFF, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
     assert "Error closing connection" in caplog.text
 
@@ -917,130 +879,112 @@ async def test_volume_up(hass: HomeAssistant, remote: Mock) -> None:
     """Test for volume_up."""
     await setup_samsungtv_entry(hass, MOCK_CONFIG)
     await hass.services.async_call(
-        DOMAIN, SERVICE_VOLUME_UP, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_VOLUME_UP, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
-    # key and update called
+    # key called
     assert remote.control.call_count == 1
     assert remote.control.call_args_list == [call("KEY_VOLUP")]
-    assert remote.close.call_count == 1
-    assert remote.close.call_args_list == [call()]
 
 
 async def test_volume_down(hass: HomeAssistant, remote: Mock) -> None:
     """Test for volume_down."""
     await setup_samsungtv_entry(hass, MOCK_CONFIG)
     await hass.services.async_call(
-        DOMAIN, SERVICE_VOLUME_DOWN, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_VOLUME_DOWN, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
-    # key and update called
+    # key called
     assert remote.control.call_count == 1
     assert remote.control.call_args_list == [call("KEY_VOLDOWN")]
-    assert remote.close.call_count == 1
-    assert remote.close.call_args_list == [call()]
 
 
 async def test_mute_volume(hass: HomeAssistant, remote: Mock) -> None:
     """Test for mute_volume."""
     await setup_samsungtv_entry(hass, MOCK_CONFIG)
     await hass.services.async_call(
-        DOMAIN,
+        MP_DOMAIN,
         SERVICE_VOLUME_MUTE,
         {ATTR_ENTITY_ID: ENTITY_ID, ATTR_MEDIA_VOLUME_MUTED: True},
         True,
     )
-    # key and update called
+    # key called
     assert remote.control.call_count == 1
     assert remote.control.call_args_list == [call("KEY_MUTE")]
-    assert remote.close.call_count == 1
-    assert remote.close.call_args_list == [call()]
 
 
 async def test_media_play(hass: HomeAssistant, remote: Mock) -> None:
     """Test for media_play."""
     await setup_samsungtv_entry(hass, MOCK_CONFIG)
     await hass.services.async_call(
-        DOMAIN, SERVICE_MEDIA_PLAY, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_MEDIA_PLAY, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
-    # key and update called
+    # key called
     assert remote.control.call_count == 1
     assert remote.control.call_args_list == [call("KEY_PLAY")]
-    assert remote.close.call_count == 1
-    assert remote.close.call_args_list == [call()]
 
     await hass.services.async_call(
-        DOMAIN, SERVICE_MEDIA_PLAY_PAUSE, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_MEDIA_PLAY_PAUSE, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
-    # key and update called
+    # key called
     assert remote.control.call_count == 2
     assert remote.control.call_args_list == [call("KEY_PLAY"), call("KEY_PAUSE")]
-    assert remote.close.call_count == 2
-    assert remote.close.call_args_list == [call(), call()]
 
 
 async def test_media_pause(hass: HomeAssistant, remote: Mock) -> None:
     """Test for media_pause."""
     await setup_samsungtv_entry(hass, MOCK_CONFIG)
     await hass.services.async_call(
-        DOMAIN, SERVICE_MEDIA_PAUSE, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_MEDIA_PAUSE, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
-    # key and update called
+    # key called
     assert remote.control.call_count == 1
     assert remote.control.call_args_list == [call("KEY_PAUSE")]
-    assert remote.close.call_count == 1
-    assert remote.close.call_args_list == [call()]
 
     await hass.services.async_call(
-        DOMAIN, SERVICE_MEDIA_PLAY_PAUSE, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_MEDIA_PLAY_PAUSE, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
-    # key and update called
+    # key called
     assert remote.control.call_count == 2
     assert remote.control.call_args_list == [call("KEY_PAUSE"), call("KEY_PLAY")]
-    assert remote.close.call_count == 2
-    assert remote.close.call_args_list == [call(), call()]
 
 
 async def test_media_next_track(hass: HomeAssistant, remote: Mock) -> None:
     """Test for media_next_track."""
     await setup_samsungtv_entry(hass, MOCK_CONFIG)
     await hass.services.async_call(
-        DOMAIN, SERVICE_MEDIA_NEXT_TRACK, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_MEDIA_NEXT_TRACK, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
-    # key and update called
+    # key  called
     assert remote.control.call_count == 1
     assert remote.control.call_args_list == [call("KEY_CHUP")]
-    assert remote.close.call_count == 1
-    assert remote.close.call_args_list == [call()]
 
 
 async def test_media_previous_track(hass: HomeAssistant, remote: Mock) -> None:
     """Test for media_previous_track."""
     await setup_samsungtv_entry(hass, MOCK_CONFIG)
     await hass.services.async_call(
-        DOMAIN, SERVICE_MEDIA_PREVIOUS_TRACK, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_MEDIA_PREVIOUS_TRACK, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
-    # key and update called
+    # key called
     assert remote.control.call_count == 1
     assert remote.control.call_args_list == [call("KEY_CHDOWN")]
-    assert remote.close.call_count == 1
-    assert remote.close.call_args_list == [call()]
 
 
 @pytest.mark.usefixtures("remotews", "rest_api")
 async def test_turn_on_wol(hass: HomeAssistant) -> None:
     """Test turn on."""
     entry = MockConfigEntry(
-        domain=SAMSUNGTV_DOMAIN,
+        domain=DOMAIN,
         data=MOCK_ENTRY_WS_WITH_MAC,
-        unique_id="any",
+        unique_id="be9554b9-c9fb-41f4-8920-22da015376a4",
     )
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     with patch(
-        "homeassistant.components.samsungtv.media_player.send_magic_packet"
+        "homeassistant.components.samsungtv.entity.send_magic_packet"
     ) as mock_send_magic_packet:
         await hass.services.async_call(
-            DOMAIN, SERVICE_TURN_ON, {ATTR_ENTITY_ID: ENTITY_ID}, True
+            MP_DOMAIN, SERVICE_TURN_ON, {ATTR_ENTITY_ID: ENTITY_ID}, True
         )
         await hass.async_block_till_done()
     assert mock_send_magic_packet.called
@@ -1048,10 +992,11 @@ async def test_turn_on_wol(hass: HomeAssistant) -> None:
 
 async def test_turn_on_without_turnon(hass: HomeAssistant, remote: Mock) -> None:
     """Test turn on."""
+    await async_setup_component(hass, "homeassistant", {})
     await setup_samsungtv_entry(hass, MOCK_CONFIG)
-    with pytest.raises(HomeAssistantError):
+    with pytest.raises(ServiceNotSupported, match="does not support action"):
         await hass.services.async_call(
-            DOMAIN, SERVICE_TURN_ON, {ATTR_ENTITY_ID: ENTITY_ID}, True
+            MP_DOMAIN, SERVICE_TURN_ON, {ATTR_ENTITY_ID: ENTITY_ID}, True
         )
     # nothing called as not supported feature
     assert remote.control.call_count == 0
@@ -1062,7 +1007,7 @@ async def test_play_media(hass: HomeAssistant, remote: Mock) -> None:
     await setup_samsungtv_entry(hass, MOCK_CONFIG)
     with patch("homeassistant.components.samsungtv.bridge.asyncio.sleep") as sleep:
         await hass.services.async_call(
-            DOMAIN,
+            MP_DOMAIN,
             SERVICE_PLAY_MEDIA,
             {
                 ATTR_ENTITY_ID: ENTITY_ID,
@@ -1079,8 +1024,6 @@ async def test_play_media(hass: HomeAssistant, remote: Mock) -> None:
         call("KEY_6"),
         call("KEY_ENTER"),
     ]
-    assert remote.close.call_count == 1
-    assert remote.close.call_args_list == [call()]
     assert sleep.call_count == 3
 
 
@@ -1091,7 +1034,7 @@ async def test_play_media_invalid_type(hass: HomeAssistant) -> None:
         await setup_samsungtv_entry(hass, MOCK_CONFIG)
         remote.reset_mock()
         await hass.services.async_call(
-            DOMAIN,
+            MP_DOMAIN,
             SERVICE_PLAY_MEDIA,
             {
                 ATTR_ENTITY_ID: ENTITY_ID,
@@ -1100,10 +1043,8 @@ async def test_play_media_invalid_type(hass: HomeAssistant) -> None:
             },
             True,
         )
-        # only update called
+        # control not called
         assert remote.control.call_count == 0
-        assert remote.close.call_count == 0
-        assert remote.call_count == 1
 
 
 async def test_play_media_channel_as_string(hass: HomeAssistant) -> None:
@@ -1113,7 +1054,7 @@ async def test_play_media_channel_as_string(hass: HomeAssistant) -> None:
         await setup_samsungtv_entry(hass, MOCK_CONFIG)
         remote.reset_mock()
         await hass.services.async_call(
-            DOMAIN,
+            MP_DOMAIN,
             SERVICE_PLAY_MEDIA,
             {
                 ATTR_ENTITY_ID: ENTITY_ID,
@@ -1122,10 +1063,8 @@ async def test_play_media_channel_as_string(hass: HomeAssistant) -> None:
             },
             True,
         )
-        # only update called
+        # control not called
         assert remote.control.call_count == 0
-        assert remote.close.call_count == 0
-        assert remote.call_count == 1
 
 
 async def test_play_media_channel_as_non_positive(hass: HomeAssistant) -> None:
@@ -1134,7 +1073,7 @@ async def test_play_media_channel_as_non_positive(hass: HomeAssistant) -> None:
         await setup_samsungtv_entry(hass, MOCK_CONFIG)
         remote.reset_mock()
         await hass.services.async_call(
-            DOMAIN,
+            MP_DOMAIN,
             SERVICE_PLAY_MEDIA,
             {
                 ATTR_ENTITY_ID: ENTITY_ID,
@@ -1143,43 +1082,47 @@ async def test_play_media_channel_as_non_positive(hass: HomeAssistant) -> None:
             },
             True,
         )
-        # only update called
+        # control not called
         assert remote.control.call_count == 0
-        assert remote.close.call_count == 0
-        assert remote.call_count == 1
 
 
 async def test_select_source(hass: HomeAssistant, remote: Mock) -> None:
     """Test for select_source."""
     await setup_samsungtv_entry(hass, MOCK_CONFIG)
     await hass.services.async_call(
-        DOMAIN,
+        MP_DOMAIN,
         SERVICE_SELECT_SOURCE,
         {ATTR_ENTITY_ID: ENTITY_ID, ATTR_INPUT_SOURCE: "HDMI"},
         True,
     )
-    # key and update called
+    # key called
     assert remote.control.call_count == 1
     assert remote.control.call_args_list == [call("KEY_HDMI")]
-    assert remote.close.call_count == 1
-    assert remote.close.call_args_list == [call()]
 
 
 async def test_select_source_invalid_source(hass: HomeAssistant) -> None:
     """Test for select_source with invalid source."""
+
+    source = "INVALID"
+
     with patch("homeassistant.components.samsungtv.bridge.Remote") as remote:
         await setup_samsungtv_entry(hass, MOCK_CONFIG)
         remote.reset_mock()
-        await hass.services.async_call(
-            DOMAIN,
-            SERVICE_SELECT_SOURCE,
-            {ATTR_ENTITY_ID: ENTITY_ID, ATTR_INPUT_SOURCE: "INVALID"},
-            True,
-        )
-        # only update called
+        with pytest.raises(HomeAssistantError) as exc_info:
+            await hass.services.async_call(
+                MP_DOMAIN,
+                SERVICE_SELECT_SOURCE,
+                {ATTR_ENTITY_ID: ENTITY_ID, ATTR_INPUT_SOURCE: source},
+                True,
+            )
+        # control not called
         assert remote.control.call_count == 0
-        assert remote.close.call_count == 0
-        assert remote.call_count == 1
+        assert exc_info.value.translation_domain == DOMAIN
+        assert exc_info.value.translation_key == "source_unsupported"
+        assert exc_info.value.translation_placeholders == {
+            "entity": ENTITY_ID,
+            "source": source,
+        }
 
 
 @pytest.mark.usefixtures("rest_api")
@@ -1189,7 +1132,7 @@ async def test_play_media_app(hass: HomeAssistant, remotews: Mock) -> None:
     remotews.send_commands.reset_mock()
 
     await hass.services.async_call(
-        DOMAIN,
+        MP_DOMAIN,
         SERVICE_PLAY_MEDIA,
         {
             ATTR_ENTITY_ID: ENTITY_ID,
@@ -1208,12 +1151,14 @@ async def test_play_media_app(hass: HomeAssistant, remotews: Mock) -> None:
 @pytest.mark.usefixtures("rest_api")
 async def test_select_source_app(hass: HomeAssistant, remotews: Mock) -> None:
     """Test for select_source."""
-    remotews.app_list_data = SAMPLE_EVENT_ED_INSTALLED_APP
+    remotews.app_list_data = load_json_object_fixture(
+        "ws_installed_app_event.json", DOMAIN
+    )
     await setup_samsungtv_entry(hass, MOCK_CONFIGWS)
     remotews.send_commands.reset_mock()
 
     await hass.services.async_call(
-        DOMAIN,
+        MP_DOMAIN,
         SERVICE_SELECT_SOURCE,
         {ATTR_ENTITY_ID: ENTITY_ID, ATTR_INPUT_SOURCE: "Deezer"},
         True,
@@ -1227,7 +1172,10 @@ async def test_select_source_app(hass: HomeAssistant, remotews: Mock) -> None:
 
 @pytest.mark.usefixtures("rest_api")
 async def test_websocket_unsupported_remote_control(
-    hass: HomeAssistant, remotews: Mock, caplog: pytest.LogCaptureFixture
+    hass: HomeAssistant,
+    remotews: Mock,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Test for turn_off."""
     entry = await setup_samsungtv_entry(hass, MOCK_ENTRY_WS)
@@ -1238,7 +1186,7 @@ async def test_websocket_unsupported_remote_control(
     remotews.send_commands.reset_mock()
 
     await hass.services.async_call(
-        DOMAIN, SERVICE_TURN_OFF, {ATTR_ENTITY_ID: ENTITY_ID}, True
+        MP_DOMAIN, SERVICE_TURN_OFF, {ATTR_ENTITY_ID: ENTITY_ID}, True
     )
     remotews.raise_mock_ws_event_callback(
         "ms.error",
@@ -1261,7 +1209,12 @@ async def test_websocket_unsupported_remote_control(
         "'unrecognized method value : ms.remote.control'" in caplog.text
     )
 
-    await async_wait_config_entry_reload(hass)
+    # Wait config_entry reload
+    await hass.async_block_till_done()
+    freezer.tick(timedelta(seconds=ENTRY_RELOAD_COOLDOWN))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
     # ensure reauth triggered, and method/port updated
     assert [
         flow
@@ -1275,9 +1228,7 @@ async def test_websocket_unsupported_remote_control(
 
 
 @pytest.mark.usefixtures("remotews", "rest_api", "upnp_notify_server")
-async def test_volume_control_upnp(
-    hass: HomeAssistant, dmr_device: Mock, caplog: pytest.LogCaptureFixture
-) -> None:
+async def test_volume_control_upnp(hass: HomeAssistant, dmr_device: Mock) -> None:
     """Test for Upnp volume control."""
     await setup_samsungtv_entry(hass, MOCK_ENTRY_WS)
 
@@ -1287,27 +1238,27 @@ async def test_volume_control_upnp(
 
     # Upnp action succeeds
     await hass.services.async_call(
-        DOMAIN,
+        MP_DOMAIN,
         SERVICE_VOLUME_SET,
         {ATTR_ENTITY_ID: ENTITY_ID, ATTR_MEDIA_VOLUME_LEVEL: 0.5},
         True,
     )
     dmr_device.async_set_volume_level.assert_called_once_with(0.5)
-    assert "Unable to set volume level on" not in caplog.text
 
     # Upnp action failed
     dmr_device.async_set_volume_level.reset_mock()
     dmr_device.async_set_volume_level.side_effect = UpnpActionResponseError(
         status=500, error_code=501, error_desc="Action Failed"
     )
-    await hass.services.async_call(
-        DOMAIN,
-        SERVICE_VOLUME_SET,
-        {ATTR_ENTITY_ID: ENTITY_ID, ATTR_MEDIA_VOLUME_LEVEL: 0.6},
-        True,
-    )
+    with pytest.raises(HomeAssistantError) as err:
+        await hass.services.async_call(
+            MP_DOMAIN,
+            SERVICE_VOLUME_SET,
+            {ATTR_ENTITY_ID: ENTITY_ID, ATTR_MEDIA_VOLUME_LEVEL: 0.6},
+            True,
+        )
+    assert err.value.translation_key == "error_set_volume"
     dmr_device.async_set_volume_level.assert_called_once_with(0.6)
-    assert "Unable to set volume level on" in caplog.text
 
 
 @pytest.mark.usefixtures("remotews", "rest_api")
@@ -1320,7 +1271,7 @@ async def test_upnp_not_available(
 
     # Upnp action fails
     await hass.services.async_call(
-        DOMAIN,
+        MP_DOMAIN,
         SERVICE_VOLUME_SET,
         {ATTR_ENTITY_ID: ENTITY_ID, ATTR_MEDIA_VOLUME_LEVEL: 0.6},
         True,
@@ -1338,7 +1289,7 @@ async def test_upnp_missing_service(
 
     # Upnp action fails
     await hass.services.async_call(
-        DOMAIN,
+        MP_DOMAIN,
         SERVICE_VOLUME_SET,
         {ATTR_ENTITY_ID: ENTITY_ID, ATTR_MEDIA_VOLUME_LEVEL: 0.6},
         True,
@@ -1358,7 +1309,7 @@ async def test_upnp_shutdown(
     state = hass.states.get(ENTITY_ID)
     assert state.state == STATE_ON
 
-    assert await entry.async_unload(hass)
+    assert await hass.config_entries.async_unload(entry.entry_id)
 
     state = hass.states.get(ENTITY_ID)
     assert state.state == STATE_UNAVAILABLE
@@ -1427,7 +1378,6 @@ async def test_upnp_re_subscribe_events(
     freezer: FrozenDateTimeFactory,
     remotews: Mock,
     dmr_device: Mock,
-    mock_now: datetime,
 ) -> None:
     """Test for Upnp event feedback."""
     await setup_samsungtv_entry(hass, MOCK_ENTRY_WS)
@@ -1437,23 +1387,24 @@ async def test_upnp_re_subscribe_events(
     assert dmr_device.async_subscribe_services.call_count == 1
     assert dmr_device.async_unsubscribe_services.call_count == 0
 
-    with patch.object(
-        remotews, "start_listening", side_effect=WebSocketException("Boom")
-    ), patch.object(remotews, "is_alive", return_value=False):
-        next_update = mock_now + timedelta(minutes=5)
-        freezer.move_to(next_update)
-        async_fire_time_changed(hass, next_update)
-        await hass.async_block_till_done()
+    with (
+        patch.object(
+            remotews, "start_listening", side_effect=WebSocketException("Boom")
+        ),
+        patch.object(remotews, "is_alive", return_value=False),
+    ):
+        freezer.tick(timedelta(minutes=5))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done(wait_background_tasks=True)
 
     state = hass.states.get(ENTITY_ID)
     assert state.state == STATE_OFF
     assert dmr_device.async_subscribe_services.call_count == 1
     assert dmr_device.async_unsubscribe_services.call_count == 1
 
-    next_update = mock_now + timedelta(minutes=10)
-    freezer.move_to(next_update)
-    async_fire_time_changed(hass, next_update)
-    await hass.async_block_till_done()
+    freezer.tick(timedelta(minutes=5))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     state = hass.states.get(ENTITY_ID)
     assert state.state == STATE_ON
@@ -1471,7 +1422,6 @@ async def test_upnp_failed_re_subscribe_events(
     freezer: FrozenDateTimeFactory,
     remotews: Mock,
     dmr_device: Mock,
-    mock_now: datetime,
     caplog: pytest.LogCaptureFixture,
     error: Exception,
 ) -> None:
@@ -1483,24 +1433,25 @@ async def test_upnp_failed_re_subscribe_events(
     assert dmr_device.async_subscribe_services.call_count == 1
     assert dmr_device.async_unsubscribe_services.call_count == 0
 
-    with patch.object(
-        remotews, "start_listening", side_effect=WebSocketException("Boom")
-    ), patch.object(remotews, "is_alive", return_value=False):
-        next_update = mock_now + timedelta(minutes=5)
-        freezer.move_to(next_update)
-        async_fire_time_changed(hass, next_update)
-        await hass.async_block_till_done()
+    with (
+        patch.object(
+            remotews, "start_listening", side_effect=WebSocketException("Boom")
+        ),
+        patch.object(remotews, "is_alive", return_value=False),
+    ):
+        freezer.tick(timedelta(minutes=5))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done(wait_background_tasks=True)
 
     state = hass.states.get(ENTITY_ID)
     assert state.state == STATE_OFF
     assert dmr_device.async_subscribe_services.call_count == 1
     assert dmr_device.async_unsubscribe_services.call_count == 1
 
-    next_update = mock_now + timedelta(minutes=10)
     with patch.object(dmr_device, "async_subscribe_services", side_effect=error):
-        freezer.move_to(next_update)
-        async_fire_time_changed(hass, next_update)
-        await hass.async_block_till_done()
+        freezer.tick(timedelta(minutes=5))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done(wait_background_tasks=True)
 
     state = hass.states.get(ENTITY_ID)
     assert state.state == STATE_ON

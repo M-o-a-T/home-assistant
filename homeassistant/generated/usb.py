@@ -11,6 +11,12 @@ USB = [
         "vid": "10C4",
     },
     {
+        "description": "*home assistant connect zbt-1*",
+        "domain": "homeassistant_sky_connect",
+        "pid": "EA60",
+        "vid": "10C4",
+    },
+    {
         "domain": "insteon",
         "vid": "10BF",
     },
@@ -55,6 +61,12 @@ USB = [
     },
     {
         "description": "*2652*",
+        "domain": "zha",
+        "pid": "EA60",
+        "vid": "10C4",
+    },
+    {
+        "description": "*slzb-07*",
         "domain": "zha",
         "pid": "EA60",
         "vid": "10C4",
@@ -135,5 +147,12 @@ USB = [
         "domain": "zwave_js",
         "pid": "8A2A",
         "vid": "10C4",
+    },
+    {
+        "description": "*nabu casa zwa-2*",
+        "domain": "zwave_js",
+        "manufacturer": "nabu casa",
+        "pid": "4001",
+        "vid": "303A",
     },
 ]
