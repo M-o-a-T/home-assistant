@@ -17,6 +17,7 @@ from denonavr.const import (
     STATE_ON,
     STATE_PAUSED,
     STATE_PLAYING,
+    STATE_STOPPED,
 )
 from denonavr.exceptions import (
     AvrCommandError,
@@ -103,6 +104,7 @@ DENON_STATE_MAPPING = {
     STATE_OFF: MediaPlayerState.OFF,
     STATE_PLAYING: MediaPlayerState.PLAYING,
     STATE_PAUSED: MediaPlayerState.PAUSED,
+    STATE_STOPPED: MediaPlayerState.IDLE,
 }
 
 
@@ -274,7 +276,7 @@ class DenonDevice(MediaPlayerEntity):
             and MediaPlayerEntityFeature.SELECT_SOUND_MODE
         )
 
-    async def _telnet_callback(self, zone: str, event: str, parameter: str) -> None:
+    def _telnet_callback(self, zone: str, event: str, parameter: str) -> None:
         """Process a telnet command callback."""
         # There are multiple checks implemented which reduce unnecessary updates of the ha state machine
         if zone not in (self._receiver.zone, ALL_ZONES):
